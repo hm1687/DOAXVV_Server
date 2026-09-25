@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DOAXVV GM Panel</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;padding:0}
+.header{background:#16213e;padding:12px 24px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #0f3460}
+.header h1{font-size:20px;color:#e94560}
+.header .status{font-size:13px;color:#53d769;margin-left:auto}
+.tabs{display:flex;background:#0f3460;overflow-x:auto}
+.tabs button{background:none;border:none;color:#a0a0a0;padding:12px 20px;font-size:14px;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;transition:.2s}
+.tabs button:hover{color:#fff;background:rgba(255,255,255,.05)}
+.tabs button.active{color:#e94560;border-bottom-color:#e94560}
+.tab-content{padding:24px;max-width:900px;margin:0 auto}
+.tab-page{display:none}
+.tab-page.active{display:block}
+.card{background:#16213e;border-radius:8px;padding:20px;margin-bottom:16px}
+.card h2{font-size:16px;color:#e94560;margin-bottom:16px}
+.field{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.field label{width:140px;font-size:14px;color:#a0a0a0;text-align:right}
+.field input,.field select{flex:1;background:#1a1a2e;border:1px solid #333;color:#e0e0e0;padding:8px 12px;border-radius:4px;font-size:14px}
+.field input:focus,.field select:focus{outline:none;border-color:#e94560}
+.btn{background:#e94560;color:#fff;border:none;padding:8px 20px;border-radius:4px;font-size:14px;cursor:pointer;transition:.2s}
+.btn:hover{background:#c73650}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-secondary{background:#0f3460}
+.btn-secondary:hover{background:#1a4a80}
+.btn-sm{padding:4px 12px;font-size:12px}
+.info{font-size:13px;color:#53d769;margin-top:8px}
+.error{font-size:13px;color:#ff6b6b;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+table th{background:#0f3460;padding:8px;text-align:left;color:#a0a0a0}
+table td{padding:8px;border-bottom:1px solid #1a1a2e}
+table tr:hover{background:rgba(255,255,255,.03)}
+.badge{display:inline-block;background:#0f3460;padding:2px 8px;border-radius:10px;font-size:12px;color:#53d769}
+.badge-off{background:#333;color:#666}
+.log-box{background:#0d1117;border:1px solid #333;border-radius:4px;padding:12px;font-family:'Consolas',monospace;font-size:12px;max-height:500px;overflow-y:auto;white-space:pre-wrap;color:#8b949e}
+.girl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.girl-card{background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:12px;cursor:pointer;transition:.2s}
+.girl-card:hover{border-color:#e94560}
+.girl-card.selected{border-color:#e94560;background:rgba(233,69,96,.1)}
+.girl-card .name{font-size:14px;font-weight:bold}
+.girl-card .mid{font-size:12px;color:#666}
+.loading{text-align:center;padding:40px;color:#666}
+.retry-btn{background:#e94560;color:#fff;border:none;padding:10px 24px;border-radius:4px;font-size:14px;cursor:pointer;margin-top:12px}
+.retry-btn:hover{background:#c73650}
+.err-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);display:none;z-index:999;align-items:center;justify-content:center;flex-direction:column}
+.err-overlay.show{display:flex}
+.err-overlay h2{color:#ff6b6b;margin-bottom:8px}
+.err-overlay p{color:#a0a0a0;font-size:14px;max-width:400px;text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🎲 DOAXVV GM Panel</h1>
+  <span class="status" id="connStatus">连接中...</span>
+</div>
+<div class="err-overlay" id="errOverlay">
+  <h2>⚠ 服务器未连接</h2>
+  <p>无法连接到游戏服务器 (127.0.0.1:443)。<br>请确认服务器已启动：<br><code>DOAXVV_Server\GM\启动GM.bat</code></p>
+  <button class="retry-btn" onclick="loadState()">重试连接</button>
+</div>
+<div class="tabs">
+  <button class="active" onclick="showTab('girl',this)">看板娘</button>
+  <button onclick="showTab('wallet',this)">钱包</button>
+  <button onclick="showTab('items',this)">物品</button>
+  <button onclick="showTab('giftbox',this)">邮箱</button>
+  <button onclick="showTab('bonus',this)">签到</button>
+  <button onclick="showTab('log',this)">日志</button>
+  <button onclick="showTab('gacha',this)">扭蛋</button>
+</div>
+<div class="tab-content">
+
+<!-- ===== 看板娘 ===== -->
+<div class="tab-page active" id="tab-girl">
+  <div class="card">
+    <h2>当前看板娘</h2>
+    <div class="field"><label>主女孩 (main_girl_mid)</label><span id="curMainGirl" class="badge">-</span></div>
+    <div class="field"><label>已配置装备的女孩</label><span id="girlCount" class="badge">-</span></div>
+  </div>
+  <div class="card">
+    <h2>切换看板娘</h2>
+    <div class="girl-grid" id="girlGrid"></div>
+  </div>
+  <div class="card" id="equipCard" style="display:none">
+    <h2>装备管理 — <span id="equipGirlName"></span></h2>
+    <div class="field"><label>泳装 (swimsuit)</label><input type="number" id="eqSwimsuit" placeholder="item_mid"></div>
+    <div class="field"><label>手饰 (accessory_arm)</label><input type="number" id="eqArm" placeholder="item_mid"></div>
+    <div class="field"><label>面饰 (accessory_head)</label><input type="number" id="eqHead" placeholder="item_mid (留空=清除)"></div>
+    <div style="margin-top:12px"><button class="btn" onclick="saveEquip()">保存装备</button></div>
+    <div class="info" id="equipMsg"></div>
+  </div>
+</div>
+
+<!-- ===== 钱包 ===== -->
+<div class="tab-page" id="tab-wallet">
+  <div class="card">
+    <h2>钱包管理</h2>
+    <div class="field"><label>金币 (zack_money)</label><input type="number" id="wZack"></div>
+    <div class="field"><label>免费V石 (free_vstone)</label><input type="number" id="wFreeVstone"></div>
+    <div class="field"><label>客人点数 (guest_point)</label><input type="number" id="wGuest"></div>
+    <div class="field"><label>VIP点数 (vip_point)</label><input type="number" id="wVip"></div>
+    <div class="field"><label>付费V石 (paid_vstone)</label><input type="number" id="wPaid"></div>
+    <div class="field"><label>VIP币 (vip_coin)</label><input type="number" id="wVipCoin"></div>
+    <div style="margin-top:12px"><button class="btn" onclick="saveWallet()">保存钱包</button></div>
+    <div class="info" id="walletMsg"></div>
+  </div>
+</div>
+
+<!-- ===== 物品 ===== -->
+<div class="tab-page" id="tab-items">
+  <div class="card">
+    <h2>发放物品</h2>
+    <div class="field"><label>物品ID (item_mid)</label><input type="number" id="addItemMid" placeholder="如 35465"></div>
+    <div class="field"><label>数量</label><input type="number" id="addItemCount" value="1" min="1"></div>
+    <div style="margin-top:12px">
+      <button class="btn" onclick="addItem('add')">增加</button>
+      <button class="btn btn-secondary" onclick="addItem('set')">设置</button>
+      <button class="btn btn-secondary" onclick="addItem('remove')">删除</button>
+    </div>
+    <div class="info" id="itemMsg"></div>
+  </div>
+  <div class="card">
+    <h2>维纳斯货币发放</h2>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">维纳斯商店专用消耗品货币，每女孩不同。选择货币类型并发放到当前账号</p>
+    <div class="field"><label>货币类型</label>
+      <select id="venusCoinType">
+        <option value="35103">35103 — 海咲</option>
+        <option value="35104">35104 — 环</option>
+        <option value="35105">35105 — 货币5</option>
+        <option value="35106">35106 — 货币6</option>
+        <option value="35107">35107 — 货币7</option>
+        <option value="35108">35108 — 货币8</option>
+        <option value="35109">35109 — 菲欧娜</option>
+        <option value="35110">35110 — 货币10</option>
+        <option value="35111">35111 — 货币11</option>
+        <option value="35112">35112 — 筑紫</option>
+        <option value="35125">35125 — 限定</option>
+        <option value="35178">35178 — 未知</option>
+      </select>
+    </div>
+    <div class="field"><label>数量</label><input type="number" id="venusCoinCount" value="999" min="1"></div>
+    <div style="margin-top:12px"><button class="btn" onclick="sendVenusCoin()">发放</button></div>
+    <div class="info" id="venusCoinMsg"></div>
+  </div>
+  <div class="card">
+    <h2>当前库存 (非零物品)</h2>
+    <table id="itemTable"><thead><tr><th>item_mid</th><th>数量</th><th>类型</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<!-- ===== 邮箱 ===== -->
+<div class="tab-page" id="tab-giftbox">
+  <div class="card">
+    <h2>邮箱状态</h2>
+    <div class="field"><label>总邮件数</label><span id="gbTotal" class="badge">-</span></div>
+    <div class="field"><label>已领取</label><span id="gbClaimed" class="badge">-</span></div>
+    <div class="field"><label>未领取 (红点)</label><span id="gbUnclaimed" class="badge">-</span></div>
+    <div class="field"><label>自定义邮件</label><span id="gbCustom" class="badge">-</span></div>
+  </div>
+  <div class="card">
+    <h2>发送物品到邮箱 (GM 自定义邮件)</h2>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">创建一封自定义邮件发送到玩家邮箱，客户端打开邮箱即可领取</p>
+    <div class="field"><label>物品ID (item_mid)</label><input type="number" id="gmMailItem" placeholder="如 35023 (金币) 或 35465 (消耗品)"></div>
+    <div class="field"><label>数量</label><input type="number" id="gmMailCount" value="1" min="1"></div>
+    <div class="field"><label>邮件类型</label>
+      <select id="gmMailType">
+        <option value="10">普通 (10)</option>
+        <option value="11">活动 (11)</option>
+        <option value="13">特殊 (13)</option>
+      </select>
+    </div>
+    <div class="field"><label>留言</label><input type="text" id="gmMailMsg" value="GM发放" placeholder="可选留言"></div>
+    <div style="margin-top:12px">
+      <button class="btn" onclick="sendMail()">发送邮件</button>
+      <button class="btn btn-secondary" onclick="clearCustomMails()">清除全部自定义邮件</button>
+    </div>
+    <div class="info" id="mailMsg"></div>
+  </div>
+  <div class="card">
+    <h2>重置邮箱</h2>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">清空已领取列表，所有邮件重新变为可领取状态</p>
+    <button class="btn" onclick="resetModule('giftbox')">重置邮箱</button>
+    <div class="info" id="giftboxMsg"></div>
+  </div>
+</div>
+
+<!-- ===== 签到 ===== -->
+<div class="tab-page" id="tab-bonus">
+  <div class="card">
+    <h2>签到状态</h2>
+    <div class="field"><label>每月签到</label><span id="bonusMonthly" class="badge">-</span></div>
+  </div>
+  <div class="card">
+    <h2>重置签到</h2>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">清除每月签到领取记录，下次登录可重新领取</p>
+    <button class="btn" onclick="resetModule('login_bonus')">重置签到</button>
+    <div class="info" id="bonusMsg"></div>
+  </div>
+  <div class="card">
+    <h2>重置公告</h2>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">清除已读公告记录，下次登录重新弹公告</p>
+    <button class="btn btn-secondary" onclick="resetModule('information')">重置公告</button>
+    <div class="info" id="infoMsg"></div>
+  </div>
+</div>
+
+<!-- ===== 日志 ===== -->
+<div class="tab-page" id="tab-log">
+  <div class="card">
+    <h2>服务器日志 (最后100行) <button class="btn btn-sm" onclick="loadLog()">刷新</button></h2>
+    <div class="log-box" id="logBox">点击刷新加载日志...</div>
+  </div>
+</div>
+
+<!-- ===== 扭蛋 ===== -->
+<div class="tab-page" id="tab-gacha">
+  <!-- 卡片 A: 全局爆率与保底配置 -->
+  <div class="card">
+    <h2>全局爆率与保底配置</h2>
+    <div class="field"><label>SSR权重</label><input type="number" id="gcSSR" value="5"></div>
+    <div class="field"><label>SR权重</label><input type="number" id="gcSR" value="15"></div>
+    <div class="field"><label>R权重</label><input type="number" id="gcR" value="80"></div>
+    <p style="color:#e8c55c;font-size:13px;margin-bottom:12px">⚠ SSR+SR+R 总和必须=100（百分比爆率，如 SSR=50/SR=40/R=10 → 十连大致 5SSR/4SR/1R）</p>
+    <div class="field"><label>硬保底阈值 (hard_pity)</label><input type="number" id="gcHardPity" value="0"></div>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">连续N抽不出SSR则必出SSR，0=禁用</p>
+    <div class="field"><label>软保底起点 (soft_pity_start)</label><input type="number" id="gcSoftStart" value="0"></div>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">软保底从该抽数开始生效，0=禁用</p>
+    <div class="field"><label>软保底增量 (soft_pity_increment)</label><input type="number" id="gcSoftIncr" value="6"></div>
+    <div class="field"><label>阶梯天井 (enable_stepup)</label><input type="checkbox" id="gcStepup" checked></div>
+    <div class="field"><label>SSR自动锁定 (ssr_auto_lock)</label><input type="checkbox" id="gcSSRLock"></div>
+    <div style="margin-top:12px"><button class="btn" onclick="saveGachaConfig()">保存配置</button></div>
+    <div class="info" id="gachaConfigMsg"></div>
+  </div>
+
+  <!-- 卡片 B: 卡池搜索与选择 -->
+  <div class="card">
+    <h2>卡池搜索与选择</h2>
+    <div class="field">
+      <label>卡池搜索</label>
+      <input type="text" id="gachaSearchInput" placeholder="输入 gacha_mid（如 5414）">
+      <button class="btn" onclick="searchGachaPools()">搜索</button>
+    </div>
+    <table id="gachaSearchTable"><thead><tr><th>gacha_mid</th><th>max_step</th><th>有覆盖</th><th>操作</th></tr></thead><tbody></tbody></table>
+    <div class="info" id="gachaSearchMsg"></div>
+  </div>
+
+  <!-- 卡片 C: 卡池详情 (默认隐藏) -->
+  <div class="card" id="gachaPoolCard" style="display:none">
+    <h2 id="gachaPoolTitle">卡池详情</h2>
+    <div class="field"><label>当前阶梯</label><span id="gpCurStep" class="badge">-</span></div>
+    <div class="field"><label>累计抽数</label><span id="gpTotalDraws" class="badge">-</span></div>
+    <div class="field"><label>距保底剩余</label><span id="gpSinceSSR" class="badge">-</span></div>
+    <div class="field"><label>SSR权重覆盖</label><input type="number" id="gpSSR" placeholder="留空=全局"></div>
+    <div class="field"><label>SR权重覆盖</label><input type="number" id="gpSR" placeholder="留空=全局"></div>
+    <div class="field"><label>R权重覆盖</label><input type="number" id="gpR" placeholder="留空=全局"></div>
+    <p style="color:#e8c55c;font-size:13px;margin-bottom:12px">⚠ 三者总和必须=100（百分比爆率）；留空=用全局默认</p>
+    <div class="field"><label>保底覆盖 (hard_pity)</label><input type="number" id="gpHardPity" placeholder="留空=全局"></div>
+    <div style="margin-top:12px">
+      <button class="btn" onclick="saveGachaPool()">保存卡池配置</button>
+      <button class="btn btn-secondary" onclick="resetGachaPity()">重置保底</button>
+      <button class="btn btn-secondary" onclick="clearGachaPool()">清除覆盖</button>
+    </div>
+    <div class="info" id="gachaPoolMsg"></div>
+  </div>
+
+  <!-- 卡片 D: 物品权重表 (默认隐藏) -->
+  <div class="card" id="gachaWeightCard" style="display:none">
+    <h2>物品权重 — SSR / SR / R</h2>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">覆盖权重留空=用默认权重。修改后点击上方保存卡池配置按钮生效</p>
+    <p style="color:#a0a0a0;font-size:13px;margin-bottom:8px">SSR</p>
+    <table id="gachaSSRTable"><thead><tr><th>item_mid</th><th>默认权重</th><th>覆盖权重</th></tr></thead><tbody></tbody></table>
+    <p style="color:#a0a0a0;font-size:13px;margin:16px 0 8px">SR</p>
+    <table id="gachaSRTable"><thead><tr><th>item_mid</th><th>默认权重</th><th>覆盖权重</th></tr></thead><tbody></tbody></table>
+    <p style="color:#a0a0a0;font-size:13px;margin:16px 0 8px">R</p>
+    <table id="gachaRTable"><thead><tr><th>item_mid</th><th>默认权重</th><th>覆盖权重</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <!-- 卡片 E: 卡池开关 (GM控制游戏内显示哪些卡池) -->
+  <div class="card">
+    <h2>卡池开关（控制游戏内显示的卡池）</h2>
+    <p style="color:#e8c55c;font-size:13px;margin-bottom:12px">勾选=游戏内显示该卡池；不勾选=隐藏。"全部显示"=重置(显示所有)。保存后重启游戏生效（gacha/list 刷新）</p>
+    <div class="field">
+      <label>搜索过滤</label>
+      <input type="text" id="gachaVisibleFilter" placeholder="过滤 gacha_mid" oninput="renderGachaVisible()" style="width:200px">
+      <button class="btn" onclick="loadGachaVisible()">刷新列表</button>
+    </div>
+    <table id="gachaVisibleTable"><thead><tr><th>gacha_mid</th><th>type</th><th>显示</th></tr></thead><tbody></tbody></table>
+    <div style="margin-top:12px">
+      <button class="btn" onclick="saveGachaVisible()">保存可见卡池</button>
+      <button class="btn btn-secondary" onclick="resetGachaVisible()">全部显示(重置)</button>
+      <button class="btn btn-secondary" onclick="toggleAllGachaVisible(true)">全选</button>
+      <button class="btn btn-secondary" onclick="toggleAllGachaVisible(false)">全不选</button>
+    </div>
+    <div class="info" id="gachaVisibleMsg"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const API = location.origin + '/gm/api/';
+const GACHA_TYPE_NAMES = {1:'基础', 2:'常驻', 3:'限定', 4:'VIP'};
+const GIRL_NAMES = {
+  2:"女孩2 (lv17)",3:"穗香 (lv29,默认)",4:"穗香? (lv42)",5:"绫音 (lv19)",
+  6:"女天狗 (lv42)",7:"心 (lv36)",8:"女孩8 (lv1)",9:"红叶 (lv33)",
+  10:"女孩10 (lv15)",11:"海咲 (lv50)",12:"露娜 (lv20)",13:"环 (lv48)",
+  14:"女孩14 (lv1)",15:"莫妮卡 (lv44)",16:"女孩16 (lv1)",18:"菲欧娜 (lv44)",
+  21:"筑紫 (lv45)",22:"女孩22 (lv1)",23:"女孩23 (lv1)",26:"女孩26 (lv1)"
+};
+let S = {};
+
+async function api(path, opts={}) {
+  const r = await fetch(API + path, {headers:{'Content-Type':'application/json'}, ...opts});
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function msg(id, text, ok=true) {
+  const e = document.getElementById(id);
+  e.textContent = text;
+  e.className = ok ? 'info' : 'error';
+}
+
+async function loadState() {
+  document.getElementById('connStatus').textContent = '连接中...';
+  document.getElementById('connStatus').style.color = '#a0a0a0';
+  document.getElementById('errOverlay').classList.remove('show');
+  try {
+    S = await api('state');
+    document.getElementById('connStatus').textContent = '已连接 ✓';
+    document.getElementById('connStatus').style.color = '#53d769';
+    document.getElementById('errOverlay').classList.remove('show');
+    renderGirl();
+    renderWallet();
+    renderItems();
+    renderGiftbox();
+    renderBonus();
+    loadGachaConfig();
+  } catch(e) {
+    document.getElementById('connStatus').textContent = '连接失败 ✗';
+    document.getElementById('connStatus').style.color = '#ff6b6b';
+    document.getElementById('errOverlay').classList.add('show');
+  }
+}
+
+// --- 看板娘 ---
+function renderGirl() {
+  const mg = S.main_girl_mid;
+  document.getElementById('curMainGirl').textContent = GIRL_NAMES[mg] || ('girl_' + mg);
+  const eq = S.girl_equipment || {};
+  document.getElementById('girlCount').textContent = Object.keys(eq).length + ' 个女孩';
+  const grid = document.getElementById('girlGrid');
+  grid.innerHTML = '';
+  const mids = Object.keys(eq).map(Number).sort((a,b)=>a-b);
+  if (!mids.includes(mg)) mids.unshift(mg);
+  mids.forEach(mid => {
+    const d = document.createElement('div');
+    d.className = 'girl-card' + (mid === mg ? ' selected' : '');
+    d.innerHTML = `<div class="name">${GIRL_NAMES[mid] || 'girl_' + mid}</div><div class="mid">mid: ${mid}</div>`;
+    d.onclick = () => selectGirl(mid);
+    grid.appendChild(d);
+  });
+}
+async function selectGirl(mid) {
+  try {
+    await api('girl', {method:'POST', body: JSON.stringify({main_girl_mid: mid})});
+    msg('equipMsg', '');
+    await loadState();
+  } catch(e) { msg('equipMsg', '失败: ' + e.message, false); }
+}
+function renderEquip(mid) {
+  const eq = (S.girl_equipment || {})[String(mid)] || {};
+  document.getElementById('equipCard').style.display = 'block';
+  document.getElementById('equipGirlName').textContent = GIRL_NAMES[mid] || 'girl_' + mid;
+  document.getElementById('eqSwimsuit').value = eq.swimsuit_item_mid || '';
+  document.getElementById('eqArm').value = eq.accessory_arm_item_mid || '';
+  document.getElementById('eqHead').value = eq.accessory_head_item_mid || '';
+}
+async function saveEquip() {
+  const mid = S.main_girl_mid;
+  const data = {};
+  const sw = document.getElementById('eqSwimsuit').value;
+  const arm = document.getElementById('eqArm').value;
+  const head = document.getElementById('eqHead').value;
+  if (sw) data.swimsuit_item_mid = parseInt(sw);
+  if (arm) data.accessory_arm_item_mid = parseInt(arm);
+  if (head) data.accessory_head_item_mid = parseInt(head);
+  try {
+    await api('girl', {method:'POST', body: JSON.stringify({girl_mid: mid, equipment: data})});
+    msg('equipMsg', '装备已保存 (girl_' + mid + ')');
+    await loadState();
+  } catch(e) { msg('equipMsg', '失败: ' + e.message, false); }
+}
+
+// --- 钱包 ---
+function renderWallet() {
+  const w = S.wallet || {};
+  document.getElementById('wZack').value = w.zack_money ?? 0;
+  document.getElementById('wFreeVstone').value = w.free_vstone ?? 0;
+  document.getElementById('wGuest').value = w.guest_point ?? 0;
+  document.getElementById('wVip').value = w.vip_point ?? 0;
+  document.getElementById('wPaid').value = w.paid_vstone ?? 0;
+  document.getElementById('wVipCoin').value = w.vip_coin ?? 0;
+}
+async function saveWallet() {
+  const data = {
+    zack_money: parseInt(document.getElementById('wZack').value) || 0,
+    free_vstone: parseInt(document.getElementById('wFreeVstone').value) || 0,
+    guest_point: parseInt(document.getElementById('wGuest').value) || 0,
+    vip_point: parseInt(document.getElementById('wVip').value) || 0,
+    paid_vstone: parseInt(document.getElementById('wPaid').value) || 0,
+    vip_coin: parseInt(document.getElementById('wVipCoin').value) || 0,
+  };
+  try {
+    await api('wallet', {method:'POST', body: JSON.stringify(data)});
+    msg('walletMsg', '钱包已保存');
+    await loadState();
+  } catch(e) { msg('walletMsg', '失败: ' + e.message, false); }
+}
+
+// --- 物品 ---
+function renderItems() {
+  const ic = S.item_counts || {};
+  const tbody = document.querySelector('#itemTable tbody');
+  tbody.innerHTML = '';
+  const entries = Object.entries(ic).filter(([k,v]) => v > 0).sort((a,b)=>b[1]-a[1]);
+  entries.slice(0, 200).forEach(([mid, count]) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${mid}</td><td>${count}</td><td>-</td>`;
+    tbody.appendChild(tr);
+  });
+  if (entries.length > 200) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="3" style="text-align:center;color:#666">... 还有 ${entries.length-200} 个物品</td>`;
+    tbody.appendChild(tr);
+  }
+}
+async function addItem(action) {
+  const mid = parseInt(document.getElementById('addItemMid').value);
+  const count = parseInt(document.getElementById('addItemCount').value) || 1;
+  if (!mid) { msg('itemMsg', '请输入物品ID', false); return; }
+  try {
+    await api('items', {method:'POST', body: JSON.stringify({item_mid: mid, count, action})});
+    const act = action==='add'?'增加':action==='set'?'设置':'删除';
+    msg('itemMsg', `${act} ${mid} x${count} 成功`);
+    await loadState();
+  } catch(e) { msg('itemMsg', '失败: ' + e.message, false); }
+}
+
+// --- 维纳斯货币发放 ---
+async function sendVenusCoin() {
+  const mid = parseInt(document.getElementById('venusCoinType').value);
+  const count = parseInt(document.getElementById('venusCoinCount').value) || 999;
+  if (!mid) { msg('venusCoinMsg', '请选择货币类型', false); return; }
+  try {
+    await api('venus_coin', {method:'POST', body: JSON.stringify({item_mid: mid, count})});
+    msg('venusCoinMsg', `已发放 ${mid} x${count} 成功`);
+    await loadState();
+  } catch(e) { msg('venusCoinMsg', '失败: ' + e.message, false); }
+}
+
+// --- 邮箱 ---
+function renderGiftbox() {
+  const claimed = (S.giftbox_claimed || []).length;
+  const total = S.giftbox_total || 25;
+  const custom = S.giftbox_custom || 0;
+  document.getElementById('gbTotal').textContent = total;
+  document.getElementById('gbClaimed').textContent = claimed;
+  document.getElementById('gbUnclaimed').textContent = total - claimed;
+  document.getElementById('gbCustom').textContent = custom;
+}
+async function sendMail() {
+  const mid = parseInt(document.getElementById('gmMailItem').value);
+  const count = parseInt(document.getElementById('gmMailCount').value) || 1;
+  const mtype = parseInt(document.getElementById('gmMailType').value) || 10;
+  const message = document.getElementById('gmMailMsg').value || 'GM发放';
+  if (!mid) { msg('mailMsg', '请输入物品ID', false); return; }
+  try {
+    const r = await api('giftbox/send', {method:'POST', body: JSON.stringify({
+      item_mid: mid, count, message_type: mtype, message
+    })});
+    msg('mailMsg', `邮件已发送: item_mid=${mid} x${count} (共 ${r.custom_total} 封自定义邮件)`);
+    document.getElementById('gmMailItem').value = '';
+    await loadState();
+  } catch(e) { msg('mailMsg', '发送失败: ' + e.message, false); }
+}
+async function clearCustomMails() {
+  if (!confirm('确定清除所有自定义邮件？')) return;
+  try {
+    await api('giftbox/clear', {method:'POST', body: JSON.stringify({})});
+    msg('mailMsg', '自定义邮件已清除');
+    await loadState();
+  } catch(e) { msg('mailMsg', '清除失败: ' + e.message, false); }
+}
+async function resetModule(mod) {
+  if (!confirm('确定重置 ' + mod + '？')) return;
+  try {
+    await api('reset', {method:'POST', body: JSON.stringify({module: mod})});
+    const msgId = mod==='giftbox'?'giftboxMsg':mod==='login_bonus'?'bonusMsg':'infoMsg';
+    msg(msgId, mod + ' 已重置');
+    await loadState();
+  } catch(e) { msg('giftboxMsg', '失败: ' + e.message, false); }
+}
+
+// --- 签到 ---
+function renderBonus() {
+  const mc = S.monthly_claimed || {};
+  document.getElementById('bonusMonthly').textContent = mc.monthly || '未领取';
+}
+
+// --- 日志 ---
+async function loadLog() {
+  try {
+    const r = await api('log');
+    document.getElementById('logBox').textContent = r.log || '(空)';
+  } catch(e) { document.getElementById('logBox').textContent = '加载失败: ' + e.message; }
+}
+
+// --- 扭蛋 ---
+let gachaConfig = null;      // 全局配置缓存
+let currentGachaMid = null;  // 当前查看的卡池
+let currentGachaPool = {};   // 当前卡池奖池(各稀有度物品数, saveGachaPool时检查爆率有效性)
+
+async function loadGachaConfig() {
+  try {
+    gachaConfig = await api('gacha/config');
+    renderGachaConfig();
+  } catch(e) { msg('gachaConfigMsg', '加载失败: ' + e.message, false); }
+}
+
+function renderGachaConfig() {
+  if (!gachaConfig) return;
+  const d = gachaConfig.defaults || {};
+  document.getElementById('gcSSR').value = (d.rarity_weights||{}).SSR ?? 5;
+  document.getElementById('gcSR').value = (d.rarity_weights||{}).SR ?? 15;
+  document.getElementById('gcR').value = (d.rarity_weights||{}).R ?? 80;
+  document.getElementById('gcHardPity').value = d.hard_pity ?? 0;
+  document.getElementById('gcSoftStart').value = d.soft_pity_start ?? 0;
+  document.getElementById('gcSoftIncr').value = d.soft_pity_increment ?? 6;
+  document.getElementById('gcStepup').checked = d.enable_stepup ?? true;
+  document.getElementById('gcSSRLock').checked = d.ssr_auto_lock ?? false;
+}
+
+async function saveGachaConfig() {
+  const ssrV = parseInt(document.getElementById('gcSSR').value) || 0;
+  const srV = parseInt(document.getElementById('gcSR').value) || 0;
+  const rV = parseInt(document.getElementById('gcR').value) || 0;
+  if (ssrV + srV + rV !== 100) { msg('gachaConfigMsg', '⚠ SSR+SR+R 总和必须=100，当前=' + (ssrV+srV+rV), false); return; }
+  const data = {
+    rarity_weights: { SSR: ssrV, SR: srV, R: rV },
+    hard_pity: parseInt(document.getElementById('gcHardPity').value) || 0,
+    soft_pity_start: parseInt(document.getElementById('gcSoftStart').value) || 0,
+    soft_pity_increment: parseInt(document.getElementById('gcSoftIncr').value) || 6,
+    enable_stepup: document.getElementById('gcStepup').checked,
+    ssr_auto_lock: document.getElementById('gcSSRLock').checked,
+  };
+  try {
+    await api('gacha/config', {method:'POST', body: JSON.stringify(data)});
+    msg('gachaConfigMsg', '全局配置已保存');
+    await loadGachaConfig();
+  } catch(e) { msg('gachaConfigMsg', '保存失败: ' + e.message, false); }
+}
+
+async function searchGachaPools() {
+  const q = document.getElementById('gachaSearchInput').value.trim();
+  if (!q) { msg('gachaSearchMsg', '请输入 gacha_mid', false); return; }
+  try {
+    const r = await api('gacha/search?q=' + encodeURIComponent(q));
+    const tbody = document.querySelector('#gachaSearchTable tbody');
+    tbody.innerHTML = '';
+    if (!r.pools || r.pools.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#666">无匹配卡池</td></tr>';
+      return;
+    }
+    r.pools.forEach(p => {
+      const tr = document.createElement('tr');
+      const btn = `<button class="btn btn-sm" onclick="loadGachaPool(${p.gacha_mid})">查看</button>`;
+      tr.innerHTML = `<td>${p.gacha_mid}</td><td>${p.max_step}</td><td>${p.has_override?'<span class="badge">是</span>':'<span class="badge badge-off">否</span>'}</td><td>${btn}</td>`;
+      tbody.appendChild(tr);
+    });
+  } catch(e) { msg('gachaSearchMsg', '搜索失败: ' + e.message, false); }
+}
+
+async function loadGachaPool(gm) {
+  currentGachaMid = gm;
+  try {
+    const r = await api('gacha/pool?gacha_mid=' + gm);
+    document.getElementById('gachaPoolCard').style.display = 'block';
+    document.getElementById('gachaWeightCard').style.display = 'block';
+    document.getElementById('gachaPoolTitle').textContent = '卡池 ' + gm + ' (max_step=' + r.max_step + ')';
+    // 保底状态
+    const pity = r.pity || {};
+    document.getElementById('gpCurStep').textContent = pity.current_step ?? 1;
+    document.getElementById('gpTotalDraws').textContent = pity.total_draws ?? 0;
+    document.getElementById('gpSinceSSR').textContent = pity.draws_since_ssr ?? 0;
+    // 卡池配置覆盖
+    const cfg = r.config || {};
+    const rw = cfg.rarity_weights || {};
+    document.getElementById('gpSSR').value = rw.SSR ?? '';
+    document.getElementById('gpSR').value = rw.SR ?? '';
+    document.getElementById('gpR').value = rw.R ?? '';
+    document.getElementById('gpHardPity').value = cfg.hard_pity ?? '';
+    // 物品权重表
+    currentGachaPool = r.pool || {};
+    renderGachaWeights(r.pool || {});
+  } catch(e) { msg('gachaPoolMsg', '加载失败: ' + e.message, false); }
+}
+
+function renderGachaWeights(pool) {
+  ['SSR','SR','R'].forEach(rarity => {
+    const tableId = rarity === 'SSR' ? 'gachaSSRTable' : rarity === 'SR' ? 'gachaSRTable' : 'gachaRTable';
+    const tbody = document.querySelector('#' + tableId + ' tbody');
+    tbody.innerHTML = '';
+    const items = pool[rarity] || [];
+    if (items.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#666">(无)</td></tr>';
+      return;
+    }
+    items.forEach(item => {
+      const tr = document.createElement('tr');
+      const ow = item.override_weight != null ? item.override_weight : '';
+      tr.innerHTML = `<td>${item.item_mid}</td><td>${item.default_weight}</td><td><input type="number" class="gacha-w-override" data-item="${item.item_mid}" value="${ow}" placeholder="默认" style="width:80px;background:#1a1a2e;border:1px solid #333;color:#e0e0e0;padding:4px;border-radius:4px"></td>`;
+      tbody.appendChild(tr);
+    });
+  });
+}
+
+async function saveGachaPool() {
+  if (!currentGachaMid) return;
+  const data = {gacha_mid: currentGachaMid};
+  let _warnMsg = '';  // 稀有度警告(无物品的稀有度爆率无效)
+  const ssr = document.getElementById('gpSSR').value.trim();
+  const sr = document.getElementById('gpSR').value.trim();
+  const r = document.getElementById('gpR').value.trim();
+  const hp = document.getElementById('gpHardPity').value.trim();
+  if (ssr || sr || r) {
+    if (!ssr || !sr || !r) { msg('gachaPoolMsg', '⚠ 设置爆率时 SSR/SR/R 必须都填', false); return; }
+    const ssrN = parseInt(ssr), srN = parseInt(sr), rN = parseInt(r);
+    if (ssrN + srN + rN !== 100) { msg('gachaPoolMsg', '⚠ SSR+SR+R 总和必须=100，当前=' + (ssrN+srN+rN), false); return; }
+    data.rarity_weights = { SSR: ssrN, SR: srN, R: rN };
+    // 检查该卡池各稀有度物品数, 提示无效爆率(无物品的稀有度权重会被丢弃, 实际分布偏离设置)
+    const _pool = currentGachaPool || {};
+    const _warn = [];
+    if (ssrN > 0 && (!_pool.SSR || _pool.SSR.length === 0)) _warn.push('SSR');
+    if (srN > 0 && (!_pool.SR || _pool.SR.length === 0)) _warn.push('SR');
+    if (rN > 0 && (!_pool.R || _pool.R.length === 0)) _warn.push('R');
+    if (_warn.length > 0) {
+      _warnMsg = '⚠ 该卡池无 ' + _warn.join('/') + ' 物品，对应爆率无效（会被丢弃）';
+    }
+  }
+  if (hp) data.hard_pity = parseInt(hp);
+  // 收集物品权重覆盖
+  const itemWeights = {};
+  document.querySelectorAll('.gacha-w-override').forEach(inp => {
+    const v = inp.value.trim();
+    if (v !== '') itemWeights[inp.dataset.item] = parseInt(v);
+  });
+  if (Object.keys(itemWeights).length > 0) data.item_weights = itemWeights;
+  try {
+    await api('gacha/pool', {method:'POST', body: JSON.stringify(data)});
+    msg('gachaPoolMsg', '卡池配置已保存' + (_warnMsg ? '（' + _warnMsg + '）' : ''), !_warnMsg);
+    await loadGachaPool(currentGachaMid);
+  } catch(e) { msg('gachaPoolMsg', '保存失败: ' + e.message, false); }
+}
+
+async function resetGachaPity() {
+  if (!currentGachaMid) return;
+  if (!confirm('确定重置卡池 ' + currentGachaMid + ' 的保底计数？')) return;
+  try {
+    await api('gacha/pity/reset', {method:'POST', body: JSON.stringify({gacha_mid: currentGachaMid})});
+    msg('gachaPoolMsg', '保底已重置');
+    await loadGachaPool(currentGachaMid);
+  } catch(e) { msg('gachaPoolMsg', '重置失败: ' + e.message, false); }
+}
+
+async function clearGachaPool() {
+  if (!currentGachaMid) return;
+  if (!confirm('确定清除卡池 ' + currentGachaMid + ' 的所有覆盖配置？')) return;
+  try {
+    await api('gacha/pool', {method:'POST', body: JSON.stringify({gacha_mid: currentGachaMid, action: 'clear'})});
+    msg('gachaPoolMsg', '覆盖已清除');
+    await loadGachaPool(currentGachaMid);
+  } catch(e) { msg('gachaPoolMsg', '清除失败: ' + e.message, false); }
+}
+
+// ============ 卡池开关 (GM控制游戏内显示哪些卡池) ============
+let gachaVisibleData = [];
+async function loadGachaVisible() {
+  try {
+    const r = await api('gacha/visible');
+    gachaVisibleData = (r.pools || []).map(p => ({...p, visible: p.visible !== false}));
+    renderGachaVisible();
+    msg('gachaVisibleMsg', '加载 ' + gachaVisibleData.length + ' 个卡池');
+  } catch(e) { msg('gachaVisibleMsg', '加载失败: ' + e.message, false); }
+}
+function renderGachaVisible() {
+  const filter = (document.getElementById('gachaVisibleFilter').value || '').trim();
+  const tbody = document.querySelector('#gachaVisibleTable tbody');
+  tbody.innerHTML = '';
+  gachaVisibleData.filter(p => !filter || String(p.gacha_mid).includes(filter)).forEach(p => {
+    const tr = document.createElement('tr');
+    const checked = p.visible ? 'checked' : '';
+    tr.innerHTML = `<td>${p.gacha_mid}</td><td>${GACHA_TYPE_NAMES[p.type] || p.type}</td><td><input type="checkbox" class="gacha-vis-cb" data-mid="${p.gacha_mid}" ${checked}></td>`;
+    tbody.appendChild(tr);
+  });
+}
+function toggleAllGachaVisible(checked) {
+  document.querySelectorAll('.gacha-vis-cb').forEach(cb => cb.checked = checked);
+}
+async function saveGachaVisible() {
+  const visible = [];
+  document.querySelectorAll('.gacha-vis-cb').forEach(cb => { if (cb.checked) visible.push(parseInt(cb.dataset.mid)); });
+  try {
+    await api('gacha/visible', {method:'POST', body: JSON.stringify({visible_pools: visible})});
+    msg('gachaVisibleMsg', '已保存: ' + visible.length + ' 个卡池可见（重启游戏生效）');
+  } catch(e) { msg('gachaVisibleMsg', '保存失败: ' + e.message, false); }
+}
+async function resetGachaVisible() {
+  try {
+    await api('gacha/visible', {method:'POST', body: JSON.stringify({action: 'reset'})});
+    await loadGachaVisible();
+    msg('gachaVisibleMsg', '已重置: 全部卡池显示');
+  } catch(e) { msg('gachaVisibleMsg', '重置失败: ' + e.message, false); }
+}
+
+// 监听看板娘切换, 自动显示装备卡片
+const origSelectGirl = selectGirl;
+selectGirl = async function(mid) {
+  await origSelectGirl(mid);
+  renderEquip(mid);
+};
+
+// 初始加载
+loadState();
+</script>
+</body>
+</html>

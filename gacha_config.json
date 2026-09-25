@@ -1,0 +1,16 @@
+{
+    "_说明": "扭蛋爆率/保底配置。defaults=全局默认; pool_overrides=按卡池覆盖(gacha_mid为key)。GM面板修改会写入STATE运行时覆盖,优先级最高。改完需重启服务器加载文件默认值。",
+    "defaults": {
+        "rarity_weights": {"SSR": 5, "SR": 15, "R": 80},
+        "use_csv_rarity": false,
+        "hard_pity": 0,
+        "soft_pity_start": 0,
+        "soft_pity_increment": 6,
+        "enable_stepup": true,
+        "step_increment": 1,
+        "step_cap_behavior": "reset",
+        "max_step_bonus": "none",
+        "ssr_auto_lock": false
+    },
+    "pool_overrides": {}
+}

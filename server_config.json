@@ -1,0 +1,9 @@
+{
+    "_说明":  "模拟服务器功能开关。true=启用跳过, false=保留原版签到/奖励。改完需重启服务器生效。",
+    "skip_daily_login_bonus":  true,
+    "_skip_daily_login_bonus说明":  "true=跳过【普通+活动签到】(POST /v1/login_bonus 返回空奖励, 客户端确认已领完→直接进岛, 不弹每日签到窗). false=保留原版每日签到弹窗领奖",
+    "skip_monthly_login_bonus":  true,
+    "_skip_monthly_login_bonus说明":  "true=跳过【月度签到】(靠客户端探针 probe_skip_monthly.js 强制 collect=1 实现, 服务器侧此开关为参考). false=保留原版月度签到",
+    "game_day_boundary_hour": -1,
+    "_game_day_boundary_hour说明":  "游戏日日切小时(24h制,北京). 09-25 测试5(用户假设): boundary=19→normalize_dates 把 received_at 改写成游戏日明天(=client游戏日)→客户端应认签到→不再反复POST. 重点抓 login_bonus POST 次数+received_at值. 若POST次数骤降=签到被认(假设成立); 仍100+次=未来日期(received_at明天>ServerTime今天)被拒→需ServerTime也=明天(但srvOff=86400)."
+}

@@ -1,0 +1,69 @@
+{
+ "information_list": [
+  {
+   "information_id": 16265,
+   "title": "DOAXVV 单机版公告",
+   "description": "欢迎来到 DOAXVV 单机版！本服务器由社区搭建，祝你游戏愉快。",
+   "html_page_url": "https://game.doaxvv.com/production/html/information/gacha_gl_0823_260904_1_0_5bc9284a44b5b855652d042ce0cabe7a34ab3c33c99c2a090af4b7c617af72dd_ko.html",
+   "category": 51,
+   "publish_at": "2026-09-04 16:00:00",
+   "close_at": "2026-09-18 15:59:59",
+   "announce_at": null,
+   "read": false,
+   "prohibit_popup": false,
+   "priority": 1
+  },
+  {
+   "information_id": 16264,
+   "title": "DOAXVV 单机版公告",
+   "description": "欢迎来到 DOAXVV 单机版！本服务器由社区搭建，祝你游戏愉快。",
+   "html_page_url": "https://game.doaxvv.com/production/html/information/gacha_gl_0823_260904_1_0_5bc9284a44b5b855652d042ce0cabe7a34ab3c33c99c2a090af4b7c617af72dd_tw.html",
+   "category": 41,
+   "publish_at": "2026-09-04 16:00:00",
+   "close_at": "2026-09-18 15:59:59",
+   "announce_at": null,
+   "read": false,
+   "prohibit_popup": false,
+   "priority": 1
+  },
+  {
+   "information_id": 16263,
+   "title": "DOAXVV 单机版公告",
+   "description": "欢迎来到 DOAXVV 单机版！本服务器由社区搭建，祝你游戏愉快。",
+   "html_page_url": "https://game.doaxvv.com/production/html/information/gacha_gl_0823_260904_1_0_5bc9284a44b5b855652d042ce0cabe7a34ab3c33c99c2a090af4b7c617af72dd_cn.html",
+   "category": 31,
+   "publish_at": "2026-09-04 16:00:00",
+   "close_at": "2026-09-18 15:59:59",
+   "announce_at": null,
+   "read": false,
+   "prohibit_popup": false,
+   "priority": 1
+  },
+  {
+   "information_id": 16262,
+   "title": "DOAXVV 单机版公告",
+   "description": "欢迎来到 DOAXVV 单机版！本服务器由社区搭建，祝你游戏愉快。",
+   "html_page_url": "https://game.doaxvv.com/production/html/information/gacha_gl_0823_260904_1_0_5bc9284a44b5b855652d042ce0cabe7a34ab3c33c99c2a090af4b7c617af72dd_en.html",
+   "category": 21,
+   "publish_at": "2026-09-04 16:00:00",
+   "close_at": "2026-09-18 15:59:59",
+   "announce_at": null,
+   "read": false,
+   "prohibit_popup": false,
+   "priority": 1
+  },
+  {
+   "information_id": 16261,
+   "title": "DOAXVV 单机版公告",
+   "description": "欢迎来到 DOAXVV 单机版！本服务器由社区搭建，祝你游戏愉快。",
+   "html_page_url": "https://game.doaxvv.com/production/html/information/gacha_gl_0823_260904_1_0_5bc9284a44b5b855652d042ce0cabe7a34ab3c33c99c2a090af4b7c617af72dd.html",
+   "category": 11,
+   "publish_at": "2026-09-04 16:00:00",
+   "close_at": "2026-09-18 15:59:59",
+   "announce_at": null,
+   "read": false,
+   "prohibit_popup": false,
+   "priority": 1
+  }
+ ]
+}

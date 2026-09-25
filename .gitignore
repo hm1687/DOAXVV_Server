@@ -1,0 +1,70 @@
+# ============================================================================
+# DOAXVV_Server — .gitignore
+# 已剥离全部敏感/个人/版权运行时数据; 以下文件均由服务器自动生成或需自行获取,
+# 切勿提交到仓库。提交前请用 `git status` 复核, 不应出现任何 .pem / 存档 / 日志。
+# ============================================================================
+
+# ===== Python 字节码 / 虚拟环境 =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ===== 敏感: 密钥 / 证书 (服务器首次启动自动生成, 勿提交) =====
+#   RSA 握手密钥对: rsa_server_pub.pem / rsa_server_priv.pem
+#   TLS 自签证书:   doaxvv_cert.pem / doaxvv_key.pem
+*.pem
+
+# ===== 敏感: 玩家存档 / 运行时状态 (服务器运行自动生成, 勿提交) =====
+server_state.json
+server_state_baseline_*.json
+local_server/server_state_baseline_*.json
+
+# ===== 敏感: 抓包 / 真实响应快照 (含个人账号数据 + 版权内容, 已删除, 勿重建提交) =====
+server_response_db.json
+real_responses.json
+real_csvlist.bin
+real_csv_list.json
+local_server/resource_list_real.json
+baseline_*.jsonl
+local_server/baseline_*.jsonl
+local_server/baseline_working.jsonl
+
+# ===== 敏感: 登录奖励抓包响应 (含 owner_id / 钱包, 已删除, 勿重建提交) =====
+login_bonus_after.json
+login_bonus_first.json
+login_bonus_monthly_reward.json
+login_bonus_reward.json
+login_bonus_reward_full.json
+
+# ===== 敏感: VPN / hosts 运行时数据 (个人运营数据, 勿提交) =====
+vpn_ip.txt
+hosts_backup/
+
+# ===== 日志 (运行时生成, 勿提交) =====
+*.log
+frida_logs/
+local_server/full_server.log
+local_server/stdout*.txt
+local_server/stderr*.txt
+local_server/stdout_fix.log
+local_server/stderr_fix.log
+
+# ===== 版权游戏数据 (不随仓库分发; 需自行获取后放入对应目录) =====
+#   csv_master/      — 游戏数据表 CSV (供 /production/csv/<hash> 与 _load_quest_tables)
+#   resources/       — 二进制资源缓存 (首次运行从回源自动重建)
+csv_master/
+resources/
+
+# ===== 操作系统 / 编辑器 =====
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

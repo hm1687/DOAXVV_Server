@@ -1,0 +1,7 @@
+{
+  "offset_days": 0,
+  "offset_hours": 0,
+  "offset_minutes": 0,
+  "offset_seconds": 0,
+  "note": "统一时间偏移配置 (客户端时间欺骗探针 + 模拟服务器共用同一时间源). 修改后需重启服务器和探针 (可用 time_tool.py). 使用方式: python time_tool.py (交互式输入年/月/日+时/分/秒)"
+}
