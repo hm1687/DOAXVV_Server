@@ -7,11 +7,18 @@ rem  Location: DOAXVV_Server\GM\
 rem  Portable: all paths relative to this bat file
 rem ============================================
 cd /d "%~dp0"
-set "PY=C:\Program Files\Python312\python.exe"
-if not exist "!PY!" (
-    echo [*] Python not found, trying python from PATH...
-    set "PY=python"
+rem Resolve a Python that really has the project deps (the first python on
+rem PATH may be a bundled runtime without "cryptography").
+call "%~dp0..\_python_env.bat"
+if not defined PY_EXE (
+    echo [ERROR] No usable Python found.
+    echo [*] Need Python 3.10+ with the "cryptography" package.
+    echo [*] Fix: "%ProgramFiles%\Python312\python.exe" -m pip install cryptography
+    pause
+    exit /b 1
 )
+set "PY=%PY_EXE%"
+echo [*] Python: !PY!
 
 echo [*] Checking game server on port 443...
 netstat -ano | findstr "LISTENING" | findstr ":443" >nul 2>&1
@@ -21,7 +28,7 @@ if !errorlevel! neq 0 (
     echo [*] Waiting for server to be ready...
     set "READY=0"
     for /l %%i in (1,1,10) do (
-        timeout /t 1 /nobreak >nul
+        ping -n 2 127.0.0.1 >nul
         netstat -ano | findstr "LISTENING" | findstr ":443" >nul 2>&1
         if !errorlevel! equ 0 (
             echo [*] Server is listening [waited %%i s]
@@ -36,7 +43,7 @@ if !errorlevel! neq 0 (
         echo [*] Possible causes:
         echo     - Port 443 already in use by another program
         echo     - Python or dependencies not installed
-        echo     - server_state.json or server_response_db.json missing
+        echo     - Port 443 occupied, or Python dependencies missing
         echo.
         echo [*] Try starting the server manually:
         echo     !PY! "%~dp0..\local_server\local_server_v2.py"

@@ -1,5 +1,5 @@
 # ============================================================================
-# DOAXVV_Server — .gitignore
+# DOAXVV_Server v1.1 — .gitignore
 # 已剥离全部敏感/个人/版权运行时数据; 以下文件均由服务器自动生成或需自行获取,
 # 切勿提交到仓库。提交前请用 `git status` 复核, 不应出现任何 .pem / 存档 / 日志。
 # ============================================================================
@@ -68,3 +68,12 @@ desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# ===== 2026-11-11 v1.1: 新增运行时数据 (勿提交) =====
+local_server/pose_owner_map.json
+local_server/pose_anchors.json
+local_server/pose_real_private.json
+local_server/resource_list_real.json
+local_server/arrange_trace.log
+local_server/pose_trace.log
+_python_env.local.bat

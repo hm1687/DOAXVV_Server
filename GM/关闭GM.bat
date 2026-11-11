@@ -19,7 +19,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr "LISTENING" ^| findstr ":443"
 rem 2. Kill any python running local_server_v2
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'local_server_v2' } | ForEach-Object { Write-Host ('    killing python PID: ' + $_.ProcessId); taskkill /f /pid $_.ProcessId | Out-Null }"
 
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 
 rem 3. Verify port is free
 netstat -ano | findstr "LISTENING" | findstr ":443" >nul 2>&1

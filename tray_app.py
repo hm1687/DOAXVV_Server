@@ -1,28 +1,31 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 tray_app.py — DOAXVV 系统托盘应用
-后台跑 服务器(隐藏)+hosts, 托盘图标+右键菜单:
-  状态/查看日志/打开控制台(实时)/重启服务器/启动游戏/一键关闭
+职责只有两件: 改 hosts 劫持 + 后台跑服务器(隐藏)。
+托盘图标 + 右键菜单: 状态/查看日志/打开控制台(实时)/重启服务器/启动游戏/一键关闭。
 路径全部 __file__ 锚定 → 任意工作目录、任意安装位置都能跑。
 被 一键启动.vbs/.bat 用 pythonw 启动(无控制台窗口), 启动后只剩托盘图标。
-(2026-09-18: 服务器改 UTC 时间, 19点白屏根因修复, 时间钳制/探针全部移除)
+2026-11-07: 时间钳制(clamp_offset.py)+frida 探针(attach_wait_forever.py/probe_smart_clamp.js)
+已整体停用并移出仓库, 本文件不再有相关开关/分支。
 """
 import os, sys, subprocess, json, threading, time
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
 DIR = os.path.dirname(os.path.abspath(__file__))   # DOAXVV_Server (本文件所在目录)
-BASE = os.path.dirname(DIR)                          # DOAX-VenusVacation
+BASE = os.path.dirname(DIR)                          # 上级目录 (游戏根目录)
 SERVER = os.path.join(DIR, "local_server", "local_server_v2.py")
 HOSTS_SWITCH = os.path.join(DIR, "hosts_switch.ps1")
 SERVER_LOG = os.path.join(DIR, "local_server", "full_server.log")
 LAUNCHER = os.path.join(BASE, "DOAX_VV_Launcher.exe")
 GAME = os.path.join(BASE, "DOAX_VV.exe")
 DIALOGS = os.path.join(DIR, "tray_dialogs.py")
-CLAMP = os.path.join(DIR, "clamp_offset.py")
-PROBE = "probe_smart_clamp.js"
-ATTACH = os.path.join(DIR, "attach_wait_forever.py")
+# 2026-11-07: 时间钳制机制(clamp_offset.py / probe_smart_clamp.js / attach_wait_forever.py)
+# 已整体停用并移出仓库 —— 19点白屏的根因是服务端日切时区错误,
+# 已按客户端 19:00 UTC 修正, 不需要再把时钟钉死(钉死会让日切永不发生, 签到/每日任务不刷新)。
+# 仅保留 offset 文件用于"清理历史残留偏移", 服务器 local_server_v2.py 仍会读该文件。
 OFFSET_FILE = os.path.join(DIR, "local_server", "time_offset_config.json")
+SERVER_CFG = os.path.join(DIR, "server_config.json")
 PY = sys.executable
 PYW = os.path.join(os.path.dirname(PY), "pythonw.exe")
 if not os.path.exists(PYW): PYW = PY
@@ -51,11 +54,9 @@ def hosts_hijacked():
 
 def status_text():
     svr = server_pid()
-    return ("服务器(443): %s\nhosts劫持: %s\n时间钳制: %s\n探针: %s" % (
+    return ("服务器(443): %s\nhosts劫持: %s" % (
         ("运行 PID %s" % svr) if svr else "未运行",
-        "是" if hosts_hijacked() else "否",
-        "激活" if clamping_active() else "关闭(offset=0)",
-        "运行" if probe_running() else "未运行"))
+        "是" if hosts_hijacked() else "否"))
 
 def start_server_bg():
     subprocess.Popen([PY, "-u", SERVER], cwd=DIR,
@@ -73,20 +74,22 @@ def ensure_log():
     except Exception:
         pass
 
-def clamping_active():
+def reset_time_offset():
+    """把服务器时间偏移清零. 钳制机制已移除, 这里只负责清理历史残留:
+    若 offset 不是 0, 服务器时间会偏离真实时间 -> 日切/时间戳再次错乱."""
     try:
+        if not os.path.exists(OFFSET_FILE):
+            return
         cfg = json.load(open(OFFSET_FILE, encoding="utf-8"))
-        return any(int(cfg.get(k, 0) or 0) != 0 for k in ("offset_days", "offset_hours", "offset_minutes", "offset_seconds"))
-    except Exception:
-        return False
-
-def probe_running():
-    return bool(run_ps("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'attach_wait_forever' } | Select-Object -First 1 -ExpandProperty ProcessId"))
-
-def start_probe_bg():
-    # 09-25: 回到系统hosts劫持, 探针只做时间钳制(只游戏)
-    subprocess.Popen([PY, "-u", ATTACH, PROBE, "--proc", "DOAX_VV.exe"], cwd=DIR,
-                     creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        keys = ("offset_days", "offset_hours", "offset_minutes", "offset_seconds")
+        if not any(int(cfg.get(k, 0) or 0) != 0 for k in keys):
+            return
+        for k in keys:
+            cfg[k] = 0
+        json.dump(cfg, open(OFFSET_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        log_write("reset_time_offset: 检测到残留时间偏移, 已清零")
+    except Exception as e:
+        log_write("reset_time_offset 异常: " + str(e))
 
 def game_running():
     return bool(run_ps("Get-Process DOAX_VV -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id"))
@@ -104,11 +107,9 @@ def launch_game():
 
 def startup():
     try:
-        subprocess.run([PY, CLAMP])
-        _thread(clamp_refresh_loop)
+        # 钳制机制已移除: 只做一次残留偏移清理, 不再拉起探针/定时刷新
+        reset_time_offset()
         ensure_hosts()
-        if not probe_running():
-            start_probe_bg()
         if not server_pid():
             start_server_bg()
             for _ in range(40):
@@ -122,16 +123,6 @@ def startup():
     except Exception as e:
         log_write("startup 异常: " + str(e))
 
-def clamp_refresh_loop():
-    """09-25: 后台每30分钟重跑 clamp_offset, 刷新偏移(服务器动态重读+探针动态读)"""
-    while True:
-        time.sleep(1800)
-        try:
-            subprocess.run([PY, CLAMP], capture_output=True, creationflags=CREATE_NO_WINDOW)
-            log_write("clamp 刷新完成")
-        except Exception:
-            pass
-
 def kill_pids(out):
     n = 0
     for ln in out.splitlines():
@@ -142,11 +133,11 @@ def kill_pids(out):
     return n
 
 def kill_all_servers():
-    kill_pids(run_ps("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'probe_smart_clamp' } | Select-Object -ExpandProperty ProcessId"))
+    """只关服务器: 443 的监听进程 + local_server_v2 进程.
+    不再杀 probe/frida —— 钳制机制已移除, 且 'frida*' 会误杀用户自己开的逆向会话.
+    也不再找 start_all.py —— 该文件早已不存在."""
     kill_pids(run_ps("Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique"))
     kill_pids(run_ps("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'local_server_v2' } | Select-Object -ExpandProperty ProcessId"))
-    kill_pids(run_ps("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'start_all.py' } | Select-Object -ExpandProperty ProcessId"))
-    kill_pids(run_ps("Get-Process -Name 'frida-helper*','frida*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id"))
 
 def shutdown():
     kill_all_servers()
@@ -154,7 +145,7 @@ def shutdown():
     if hosts_hijacked():
         subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", HOSTS_SWITCH, "off"],
                        creationflags=CREATE_NO_WINDOW)
-    subprocess.run([PY, CLAMP, "--reset"])
+    reset_time_offset()
     if icon:
         icon.stop()
 
@@ -216,9 +207,9 @@ def main():
             return
     menu = pystray.Menu(
         pystray.MenuItem("DOAXVV 单机服", None, enabled=False),
-        pystray.MenuItem("当前状态 (双击)", on_status, default=True),
+        pystray.MenuItem("当前状态", on_status, default=True),
         pystray.MenuItem("查看日志", on_view_log),
-        pystray.MenuItem("打开控制台 (实时)", on_console),
+        pystray.MenuItem("打开控制台", on_console),
         pystray.MenuItem("重启服务器", on_restart),
         pystray.MenuItem("启动游戏", on_game),
         pystray.Menu.SEPARATOR,

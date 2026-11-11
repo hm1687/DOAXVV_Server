@@ -16,9 +16,36 @@ from cryptography import x509
 from paths import OUT, CERT, KEY, LOG, GM_HTML, RSA_PUB, RSA_PRIV, TOOL, CSV_LIST_JSON, CSV_MASTER
 
 # 鉴权凭据 (敏感: 原硬编码 Token/owner_id 已移除, 改为从环境变量读取; 见 README)
-TOKEN = os.environ.get("DOAXVV_TOKEN", "")                          # 设置环境变量 DOAXVV_TOKEN 为你的鉴权 Token
-OWNER_ID = int(os.environ.get("DOAXVV_OWNER_ID", "0") or "0")       # 设置环境变量 DOAXVV_OWNER_ID 为你的游戏 owner_id
+TOKEN = os.environ.get("DOAXVV_TOKEN", "")
+OWNER_ID = int(os.environ.get("DOAXVV_OWNER_ID", "0") or "0")
 SESSION_KEY = None
+
+# 2026-11-08: 泳装形态列表回放开关.
+#   False = GET /v1/swimsuit_arrange_flag 返回空列表 (安全默认; 重启后形态回默认但不会崩溃)
+#   True  = 回放 STATE.swimsuit_arrange_flags (需先确认 variation 语义, 否则客户端越界崩溃)
+#   2026-11-08 22:52 关闭(第二次崩): 回放 {item_mid:59983, variation:1} 仍导致启动闪退(先卡后崩)
+#     → 该列表不是"形态记忆"的载体, 或条目还需其它字段; 在拿到正版可用的真实样本前保持空列表.
+#   【最终结论 2026-11-08 · 勿再尝试】两种变体值(74 / 1)回放均崩, 详见 GET 分支内的详细备注销.
+#     要修必须有"正版非空样本", 靠推测无解; 用户已同意暂时搁置, 功能在游戏内可正常切换.
+_ARRANGE_REPLAY_ENABLED = False
+# 回放时 variation 的安全上限: 客户端把它当"变体下标"用, 大值(实测 74)会越界崩进程.
+#   → 只回放 0..CAP 的条目; 超出的按"默认形态不放"处理 (不崩优先)
+_ARRANGE_VARIATION_CAP = 3
+# 形态诊断: 客户端到底有没有在点箭头时发 PUT、发的什么值 —— 写独立小文件, 即时 flush,
+#   不受 logutil 16KB 缓冲影响 (full_server.log 会滞后/丢失, 之前据此误判"0 请求")
+_ARRANGE_TRACE = True
+
+def _arrange_trace(kind, **kw):
+    if not _ARRANGE_TRACE:
+        return
+    try:
+        import time as _t
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "arrange_trace.log")
+        with open(_p, "a", encoding="utf-8") as _f:
+            _f.write(_t.strftime("%Y-%m-%d %H:%M:%S") + " " + kind + " " +
+                     " ".join("%s=%s" % (_k, _v) for _k, _v in kw.items()) + "\n")
+    except Exception:
+        pass
 
 from logutil import _flush_log, log_write, now_ts
 
@@ -267,9 +294,11 @@ def _get_akamai_fallback_ips():
         pass
     return ips
 
-# ===== 服务器时间 (本地时间 + 时间偏移, 与客户端探针共用同一偏移) =====
-# 时间偏移从 time_offset_config.json 读取 (clamp_offset.py 写入, frida 探针也读同一文件)
-#   19点后 clamp_offset 写偏移(回到18:00), 服务器+客户端都偏移相同量 → 双方时间一致 → 不触发19点白屏
+# ===== 服务器时间 (本地时间 + 时间偏移) =====
+# 时间偏移从 time_offset_config.json 读取。该机制原本用于"钳制"(clamp_offset.py 写入 + frida 探针同步改客户端),
+# 2026-11-07 旧时间钳制机制整体停用并移出仓库, 19点白屏根因已按客户端 19:00 UTC 日切修正。
+# 现在该文件只作为"可选的手工偏移", 正常情况必须全 0: 一旦非 0, 服务器时间就偏离真实时间,
+# 而客户端已无探针跟随 → 时间戳/日切再次错位 → 必定白屏。托盘/一键关闭都会把它归零。
 TIME_OFFSET_FILE = os.path.join(OUT, "time_offset_config.json")
 
 def _load_time_offset():
@@ -284,36 +313,69 @@ def _load_time_offset():
 TIME_OFFSET_D, TIME_OFFSET_H, TIME_OFFSET_M, TIME_OFFSET_S = _load_time_offset()
 
 def time_offset_delta():
-    # 09-25: 动态重读 time_offset_config (配合后台定时 clamp_offset 刷新, 服务器不用重启也跟着钳)
+    # 每次调用都重读, 便于手工改动后立即生效(不再有后台定时写入方: clamp_offset.py 已移除)
     _d, _h, _m, _s = _load_time_offset()
     return datetime.timedelta(days=_d, hours=_h, minutes=_m, seconds=_s)
 
 def server_now():
-    """服务器当前时间 (本地时间 + 时间偏移, 与客户端探针一致). 注: .timestamp() 已自动转 UTC epoch,
-    故 X-DOAXVV-ServerTime = str(int(game_now().timestamp())) 本就是正确 UTC epoch (2026-09-25 实测:
-    now().timestamp()==time.time(), utcnow().timestamp() 反而偏 -8h). 09-24「utcnow 修复时间错位」推断已被证伪."""
+    """服务器当前时间 (= 本地时间 + time_offset_delta, 正常情况偏移恒为 0).
+    注: .timestamp() 已自动转 UTC epoch, 故 X-DOAXVV-ServerTime = str(int(game_now().timestamp()))
+    本就是正确 UTC epoch (2026-09-25 实测: now().timestamp()==time.time(), utcnow().timestamp() 反而偏 -8h)."""
     return datetime.datetime.now() + time_offset_delta()
 
 def server_now_str(fmt="%Y-%m-%d %H:%M:%S"):
-    return server_now().strftime(fmt)
+    """响应体时间串 -> 必须输出 UTC。
+    官方服务器响应里的所有时间都是 UTC (实证: 档期结束 18:59:59 / last_logged_at 11:17 对应北京 19:17),
+    客户端也按 UTC 解析(_mkgmtime64)。用本地时间会让所有时间整体快 8 小时, 客户端看到"未来时间"。"""
+    return datetime.datetime.fromtimestamp(
+        server_now().timestamp(), datetime.timezone.utc).strftime(fmt)
 
-# ===== 游戏日 (19点日切) — 2026-09-12 19点白屏修复 =====
-# 机制: 客户端以 19:00 (北京时间) 为"游戏日"分界, 19点后视为次日;
-#       服务器原先用日历日(午夜翻日)判断 monthly collect, 19:00~24:00 窗口内与客户端游戏日错位一天,
-#       客户端认为"月度签到未随新游戏日刷新" -> 大厅初始化序列无限循环 -> 白屏/黑屏 (铁证: 10_错误日志 序号2/3/4)
-# 修复: monthly collect 比较 + POST 领取写日期 都用 game_today_str(), 与客户端游戏日对齐
-# 开关: server_config.json "game_day_boundary_hour": 19 (默认=19, 修复开启); 设为 -1 则回退日历日(修复前行为)
-# 注: CONFIG 在本函数定义之后才初始化(L391), 但 Python 在调用时才解析全局名, 请求处理阶段 CONFIG 已存在
-def game_today_str():
-    """当前"游戏日"日期字符串 (%Y-%m-%d). 边界小时(默认19,可配)之后算次日, 与客户端游戏日一致"""
+# ===== 游戏日 (19:00 UTC 日切) — 2026-11-07 REA 实证修正 =====
+# 客户端真实日界 (IDA Pro 反编译 DOAX_VV.exe sub_14236BC20 / sub_1424BBE80, 镜像基址 0x140000000):
+#     v20[0] = now_epoch - 68400;                        // 68400 = 19*3600
+#     gmtime(v20) -> snprintf("%04d-%02d-%02d 19:00:00") // 再 _mkgmtime64 转回 epoch 比较
+#   => 游戏日 D 覆盖 [D 19:00 UTC, D+1 19:00 UTC) = 北京 [D+1 03:00, D+2 03:00) = 日本 [D+1 04:00, D+2 04:00)
+# 官方服务器响应体里的时间串同样是 UTC (实证: 档期结束大量 18:59:59; last_logged_at=11:17:49 对应北京 19:17)
+#
+# 【旧实现的 bug】把 19 当成"本地小时"用 (now.hour >= 19 + 1day):
+#   服务器在北京 19:00 就翻页, 而客户端要等到北京 03:00 才翻 -> 每天 19:00~次日 03:00 服务器整整超前一天
+#   -> 客户端收到"明天/未来"的日期 -> 判定为未来日期并拒绝 -> 大厅初始化反复重试 -> 19点白屏
+#   旧注释里"客户端以 19:00 北京时间分界"是误判: 那个 19 是 UTC 19 点, 不是本地 19 点。
+#
+# 开关: server_config.json "game_day_boundary_hour" 现表示【UTC 日切小时】, 默认 19 (=官方 04:00 JST)
+# 注: CONFIG 在本函数定义之后才初始化(L391), Python 在调用时解析全局名, 请求处理阶段 CONFIG 已存在
+GAME_DAY_BOUNDARY_UTC_HOUR = 19
+
+def _game_day_boundary_utc_hour():
     try:
-        boundary = int(CONFIG.get("game_day_boundary_hour", 19))
+        h = int(CONFIG.get("game_day_boundary_hour", GAME_DAY_BOUNDARY_UTC_HOUR))
     except (TypeError, ValueError):
-        boundary = 19
-    now = server_now()
-    if boundary >= 0 and now.hour >= boundary:
-        now = now + datetime.timedelta(days=1)
-    return now.strftime("%Y-%m-%d")
+        h = GAME_DAY_BOUNDARY_UTC_HOUR
+    return GAME_DAY_BOUNDARY_UTC_HOUR if h < 0 else (h % 24)
+
+def utc_now():
+    """服务器当前时间的 UTC 视图 (naive, 已含时间偏移). 响应体时间串必须用它, 不能用本地时间"""
+    return datetime.datetime.fromtimestamp(server_now().timestamp(), datetime.timezone.utc).replace(tzinfo=None)
+
+def game_now_str(fmt="%Y-%m-%d %H:%M:%S"):
+    """响应体里的时间串: UTC 格式化 (官方服务器如此, 否则客户端看到 +8h 的"未来时间")"""
+    return utc_now().strftime(fmt)
+
+def game_today_str():
+    """游戏日"标签" (%Y-%m-%d) — 注意是【标签】, 比客户端算出的窗口起点晚一天。
+
+    客户端 sub_14236BC20 算的是【窗口起点】: gmtime(now-19h) 那天的 19:00:00 UTC,
+    用来做阈值比较 (项目日期 < 阈值 => 已过期)。它算出的日期是 D-1, 而这一天真正
+    叫法(官方日标签)是 D —— 因为游戏日 D 覆盖 [D-1 19:00 UTC, D 19:00 UTC),
+    即日本 [D 04:00, D+1 04:00)。实证: CSV 里"档期结束"统一写 18:59:59 UTC
+    (= 次日 03:59:59 JST), 两者是同一时刻的两种写法, 都指向 D 19:00 UTC 这个边界。
+
+    所以: 标签 = gmtime(now - B + 24h) 的日期 = gmtime(now + (24-B)h)。B=19 => now+5h。
+    (B=19 时 at 北京 03:00 = 19:00Z 前一秒 => 标签 D-1; 一到 03:00 => 标签 D。)
+    """
+    shift = _game_day_boundary_utc_hour() * 3600 - 86400   # 等价于 +24h 后再减边界
+    ts = server_now().timestamp() - shift
+    return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime("%Y-%m-%d")
 
 def game_now():
     """raw 当前时间 (不 shift). 09-25 真修复: 之前 game_now 在 boundary 后 +1天 → X-DOAXVV-ServerTime=明天
@@ -322,19 +384,6 @@ def game_now():
     return server_now()
 
 def load_rsa():
-    """加载服务器 RSA 密钥对; 若缺失则自动生成 2048 位新密钥对并落盘。
-    握手机制: GET /v1/session/key 把本公钥下发给客户端, 客户端用它加密 AES 会话密钥,
-    故任意新生成的密钥对均可工作, 不含任何个人/原版密钥 (原密钥已作为敏感数据移除)。"""
-    if not (os.path.exists(RSA_PUB) and os.path.exists(RSA_PRIV)):
-        print("[*] RSA 密钥对缺失, 自动生成新 2048 位密钥对...")
-        _k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        with open(RSA_PRIV, "wb") as _f:
-            _f.write(_k.private_bytes(serialization.Encoding.PEM,
-                     serialization.PrivateFormat.PKCS8,
-                     serialization.NoEncryption()))
-        with open(RSA_PUB, "wb") as _f:
-            _f.write(_k.public_key().public_bytes(serialization.Encoding.PEM,
-                     serialization.PublicFormat.SubjectPublicKeyInfo))
     with open(RSA_PUB, "rb") as f:
         pub = serialization.load_pem_public_key(f.read())
     with open(RSA_PRIV, "rb") as f:
@@ -345,11 +394,6 @@ def load_rsa():
 PUB, PRIV, PUB_PEM = load_rsa()
 
 def load_csv_list():
-    """加载 CSV 列表; 若 real_csv_list.json 缺失则返回空映射, 降级运行 (不下发任何 CSV, 游戏无数据表)。
-    CSV 列表与 csv_master 数据表为版权游戏数据, 不随仓库分发 — 自行获取后放入 TOOL 目录, 见 README。"""
-    if not os.path.exists(CSV_LIST_JSON):
-        print("[!] CSV 列表 (real_csv_list.json) 缺失 — 降级运行 (无 CSV 数据表, 见 README)")
-        return {}, ""
     with open(CSV_LIST_JSON, encoding="utf-8") as f:
         data = json.load(f)
     csv_map = data["csv_file_list"]
@@ -474,6 +518,88 @@ if os.path.exists(_ep_path):
         print(f"[*] 已加载 episode 全集: {len(EPISODE_MIDS)} 个 (EpisodeList.csv)")
     except Exception as _e:
         print(f"[!] EpisodeList.csv 加载失败: {_e}")
+
+# ===== 2026-11-08: 场景解锁 + 姿势/表情解锁 的数据源 =====
+# ① 场景: Item_Photospot_Table.csv = [item_mid, scene_no], 447 条, item 全部是 Consume_Parameter
+#    type=7 的"场景解锁道具"。持有/使用这些道具即可解锁对应岛主房间场景。
+#    本存档 type7 道具持有 0 件 → 场景全灰。
+PHOTOSPOT_SCENE_MAP = {}      # item_mid -> scene_no
+PHOTOSPOT_SCENE_IDS = set()   # 全部合法场景号 (取自 CSV, 都是游戏里真实存在的场景)
+FRIENDLY_PHOTOSPOT_MAP = {}   # photo_spot_mid -> 解锁所需 friendly 等级 (CR_Friendly3Photospot)
+_ps_path = os.path.join(CSV_MASTER, "Item_Photospot_Table.csv")
+if os.path.exists(_ps_path):
+    import csv as _pscsv
+    try:
+        with open(_ps_path, "r", encoding="utf-8-sig") as _ps_f:
+            for _row in _pscsv.reader(_ps_f):
+                if len(_row) >= 2 and _row[0]:
+                    try:
+                        _mid_ps, _sc_ps = int(_row[0]), int(_row[1])
+                    except ValueError:
+                        continue
+                    PHOTOSPOT_SCENE_MAP[_mid_ps] = _sc_ps
+                    PHOTOSPOT_SCENE_IDS.add(_sc_ps)
+        print(f"[*] 已加载场景道具表: {len(PHOTOSPOT_SCENE_MAP)} 件道具 / "
+              f"{len(PHOTOSPOT_SCENE_IDS)} 个场景 (Item_Photospot_Table)")
+    except Exception as _e:
+        print(f"[!] Item_Photospot_Table.csv 加载失败: {_e}")
+
+# CR_Friendly3Photospot.csv = [所需 friendly 等级, photo_spot_mid]
+#   实证: 外出(约会)界面的"地点"解锁判定 = 两个女孩组合的 friendly 等级 (用户截图: 上面写
+#   "亲密等级达到后解锁")。真服样本 friendly value=11185 → level=21; 本表最高需要 level 120。
+_fp_path = os.path.join(CSV_MASTER, "CR_Friendly3Photospot.csv")
+if os.path.exists(_fp_path):
+    import csv as _fpcsv
+    try:
+        with open(_fp_path, "r", encoding="utf-8-sig") as _fp_f:
+            for _row in _fpcsv.reader(_fp_f):
+                if len(_row) >= 2 and _row[0]:
+                    try:
+                        FRIENDLY_PHOTOSPOT_MAP[int(_row[1])] = int(_row[0])
+                    except ValueError:
+                        continue
+        print(f"[*] 已加载外出地点解锁表: {len(FRIENDLY_PHOTOSPOT_MAP)} 个地点 "
+              f"(最高需 friendly Lv{max(FRIENDLY_PHOTOSPOT_MAP.values())}) (CR_Friendly3Photospot)")
+    except Exception as _e:
+        print(f"[!] CR_Friendly3Photospot.csv 加载失败: {_e}")
+
+# ② 姿势/表情: Equipment_Parameter type=37(姿势卡 1325 件) / type=81(表情卡 2416 件)。
+#    实证: 真服 /v1/girl/private 的 private_item_list 里, 每个女孩只有基础 6 张
+#    (50057/50066/50099/50100/50101/50102) + 活动送的零散几张 → 其余姿势/表情在菜单里是锁的。
+POSE_ITEM_MIDS = []      # type37 姿势卡全集
+EXPR_ITEM_MIDS = []      # type81 表情卡全集
+for _mid_pe, _t_pe in EQUIP_TYPE_MAP.items():
+    if _t_pe == 37:
+        POSE_ITEM_MIDS.append(_mid_pe)
+    elif _t_pe == 81:
+        EXPR_ITEM_MIDS.append(_mid_pe)
+POSE_ITEM_MIDS.sort()
+EXPR_ITEM_MIDS.sort()
+print(f"[*] 已加载姿势/表情卡: 姿势 {len(POSE_ITEM_MIDS)} 件, 表情 {len(EXPR_ITEM_MIDS)} 件")
+
+# 2026-11-08 14:10 版(favorite 全量)已被用户实测否决:
+#   ① 姿势/表情没解锁; ② 反而让所有卡显示"已星标", 取消后重启又复原。
+#   → favorite 只负责星标(现走 STATE["pose_expr_favorite"], 真正的持久化在 POST 分支里)。
+_FAV_POSE_EXPR_ENABLED = False   # 已废弃: 37/81 的 GET 现在只回真正标星的, 不再全量返回
+_FAV_POSE_EXPR_GLOBAL = False
+# 2026-11-08 14:20: 尝试过 GET /v1/special_order/37 → pose_card_item_list (客户端启动时逐类拉已购列表:
+#   29=订单券, 37=姿势卡, 19=时间停止, 52=扇子, 86=SP订单)。返回 3741 条后用户实测仍未解锁。
+#   怀疑: 混入 type81 让客户端整批丢弃, 或该列表只服务商店兑换界面。
+#   现改为只发 type37(1325 条), 作为区分实验的一条支路。
+_POSE_CARD_ORDER_ENABLED = True
+_POSE_CARD_INCLUDE_EXPR = False
+_POSE_CARD_TS = "2019-03-28 11:13:59"   # 固定时间戳: 在 normalize_dates 的 2700 天窗口外, 不会被改成"今天"
+_POSE_TRACE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_trace.log")
+
+
+def _pose_trace(girl_mid, fav_type, n):
+    """即时落盘记录姿势/表情请求 (logutil 有 16KB 缓冲, print 在 bat 窗口里看不到)。"""
+    try:
+        with open(_POSE_TRACE_PATH, "a", encoding="utf-8") as _f:
+            _f.write(f"{server_now_str()} girl={girl_mid or 'ALL'} type={fav_type} "
+                     f"returned={n} enabled={_FAV_POSE_EXPR_ENABLED} global={_FAV_POSE_EXPR_GLOBAL}\n")
+    except Exception:
+        pass
 
 # 扭卡消费映射: gacha_mid -> {"consume_item_mid": int, "price": int} (从 GachaStepup.csv, step=1 行)
 # consume_item_mid=0 表示用 vstone 抽; 非0 表示用对应抽卡券(item_mid)抽
@@ -659,7 +785,7 @@ def _gacha_type(gm):
     return GACHA_INFO_MAP.get(gm, {}).get("type", 3)
 
 def _gacha_is_active(gm):
-    """检查卡池是否在有效时间范围内 — 单机版放宽: 时间钳制会导致限定池(type=3)判定过期, 单机版不限制卡池时间"""
+    """检查卡池是否在有效时间范围内 — 单机版放宽: 服务器时间未必与档期数据对齐, 限定池(type=3)容易被判定过期, 故不限制卡池时间"""
     return True
 
 def _gacha_paired(gm):
@@ -1045,11 +1171,11 @@ def _load_state():
               "subscription_checked_at": "2026-09-03 11:12:02", "lesson2onsen_exchanged_item_at": "2023-05-24 05:36:57",
               "comeback_login_bonus_expire_at": None, "compensation_create_girl_append_item_at": "2026-01-09 10:12:01",
               "created_at": "2019-03-28 11:10:39", "updated_at": "2026-09-12 14:25:24"},
-          "casino_chip": {          # 2026-09-14: 赌场筹码 (像私服版, 初始私服版真实值7220/148; 赌场play时更新)
+          "casino_chip": {          # 2026-09-14: 赌场筹码 (赌场 play 时更新)
               "owner_id": OWNER_ID, "chip_normal": 0, "chip_gold": 0,
               "limit_chip_gold": 0, "gold_chip_mid": 73, "dealer_chip_count": 0,
               "created_at": "2021-04-04 03:07:30", "updated_at": "2026-09-13 11:17:53"},
-          "casino_game": [   # 2026-09-14: 赌场统计 (像私服版, 初始真实值; 赌场play时play_count++/win_count++)
+          "casino_game": [   # 2026-09-14: 赌场统计 (赌场 play 时累加)
               {"game": 2, "play_count": 0, "win_count_total": 0, "win_count_series": 0, "win_count_series_max": 0},
               {"game": 1, "play_count": 0, "win_count_total": 0, "win_count_series": 0, "win_count_series_max": 0}],
           # 2026-09-15: 温泉/送礼/岛主房间工作 动态持久化 (抓包私服版确认的端点+请求体)
@@ -1080,6 +1206,54 @@ def _save_state():
     """标记 dirty, 后台线程定时写盘 (去抖: 44个调用点不再每次fsync 500KB, 大幅减少IO卡顿)"""
     global _STATE_DIRTY
     _STATE_DIRTY = True
+
+
+# ===== 2026-11-07 背包修复④: 库存键类型统一 =====
+# 内存里 item_counts 的键规范是 int (见 STATE 加载后的归一化);
+# 但历史代码有几处直接把请求里的值写进去, 一旦是字符串
+#   → 同一件东西出现 35066 和 "35066" 两条, 各记一半数量。
+#   表现: 抽卡券/道具数量忽多忽少, 用完了还剩、或者明明有却判定不足。
+# 统一: 一律 int 键, 并顺手清掉同 mid 的历史字符串键。
+def ic_key(mid):
+    try:
+        return int(mid)
+    except (TypeError, ValueError):
+        return mid
+
+
+def ic_get(mid, default=0):
+    ic = STATE.get("item_counts") or {}
+    k = ic_key(mid)
+    for _k in (k, str(k)):
+        if _k in ic:
+            try:
+                return int(ic[_k] or 0)
+            except (TypeError, ValueError):
+                return default
+    return default
+
+
+def ic_set(mid, val):
+    ic = STATE.setdefault("item_counts", {})
+    k = ic_key(mid)
+    ic[k] = int(val)
+    _dup = str(k)
+    if _dup != k and _dup in ic:
+        ic.pop(_dup, None)   # 清掉历史字符串键, 避免同一物品两份
+    return ic[k]
+
+
+def ic_add(mid, delta):
+    return ic_set(mid, ic_get(mid) + int(delta))
+
+
+def ic_take(mid, n, floor=0):
+    """扣减库存并返回 (扣前, 扣后)。floor=0 时不会扣成负数。"""
+    cur = ic_get(mid)
+    new = max(floor, cur - int(n))
+    ic_set(mid, new)
+    return cur, new
+
 
 def _flush_state():
     """实际写盘: 原子写(tmp+replace). 2026-09-18 IO优化: 持锁只做浅拷贝快照(微秒), 释放锁再写盘,
@@ -1120,6 +1294,19 @@ _atexit_state.register(_flush_state)  # 正常退出最终写(防丢最后2秒)
 threading.Thread(target=_state_flush_loop, daemon=True).start()
 
 STATE = _load_state()
+
+# 2026-11-08: 启动时清洗历史存档里的非法替补女孩 ID。
+# 客户端用 65535/0xffff 表示"无替补", 旧版曾把它原样存进 quest_team 并回显,
+# 客户端按该 ID 查女孩对象返回 null → DOAX_VV.exe+0x240dd1b 空指针崩溃。
+# 合法女孩 ID 是 2..33, 真服"无替补"用 -1。
+_qt_boot = STATE.get("quest_team")
+if isinstance(_qt_boot, dict):
+    try:
+        _sub_boot = int(_qt_boot.get("girl_mid_substitute", -1))
+    except (TypeError, ValueError):
+        _sub_boot = -1
+    if not (2 <= _sub_boot <= 33) and _sub_boot != -1:
+        _qt_boot["girl_mid_substitute"] = -1
 
 # 2026-09-13: 归一化 item_counts key 为整数 (JSON 加载后 key 变字符串, 导致 int 查找失败)
 _ic_raw = STATE.get("item_counts", {})
@@ -1198,7 +1385,904 @@ for _e_bf in _inv_seed:
 if _seed_added:
     _save_state()
     print(f"[*] 装备库存播种: +{_seed_added} (总计装备 {len(_inv_seed)} 件, 私人套装 {len(_spi_seed)} 条)")
-else:
+
+
+# ===== 2026-11-07 商店/背包修复 ①a: 装备被误记进消耗品库存 → 衣橱里永远看不到 =====
+# 实证: STATE.item_counts 里躺着 58 条装备类物品 (泳装22/姿势卡24/其它12),
+#       而 /v1/item/equipment/type/* 只读 equipment_inventory → 客户端查不到 → "买了不进背包/衣橱"。
+# 处理: 装备类 (0/1/11/22/23/24/56/82, 与商店 exchange 的判定保持一致) 迁出 item_counts,
+#       按缺少的份数补进 equipment_inventory; 其余类型(姿势卡37/封69等)保留为消耗品。
+# 幂等: 迁移后 item_counts 不再有这些 key, 下次启动自然跳过。
+def _migrate_equip_from_item_counts():
+    _ic = STATE.get("item_counts", {})
+    _inv = STATE.setdefault("equipment_inventory", [])
+    # 2026-11-07 修复②: 原白名单只有 (0,1,11,22,23,24,56,82), 漏了 19/37/52/69
+    #   → 姿势卡(37)/饰品(52)/封印(69)/19 类物品同时留在 item_counts 和 equipment_inventory,
+    #     客户端背包里数量翻倍、衣橱里也有一份 → "背包物品数量不对"。
+    #   依据: Consume_Parameter 与 Equipment_Parameter 的 item_mid 完全不相交(实测 0 重叠),
+    #         所以只要在装备表里, 就一定属于衣橱实例, 不进消耗品库存。
+    # 2026-11-08 追加 67(家具): 商店里 690 个家具商品(type67), 旧白名单漏掉它 →
+    #   买家具只写 item_counts, 永远进不了 equipment_inventory → /v1/furniture/ 看不到 →
+    #   岛主房间"道具没解锁"。这条同时把历史误记在 item_counts 的家具迁回衣橱。
+    _epts = (0, 1, 11, 19, 22, 23, 24, 37, 52, 56, 67, 69, 82)
+    _moved = _kinds = 0
+    _base = (int(datetime.datetime.now().timestamp() * 1000) % 1000000000) + 4510000000
+    for _k in list(_ic.keys()):
+        try:
+            _mid = int(_k)
+        except (TypeError, ValueError):
+            continue
+        _et = EQUIP_TYPE_MAP.get(_mid)
+        if _et is None or _et not in _epts:
+            continue
+        _cnt = int(_ic.get(_k, 0) or 0)
+        _have = sum(1 for _e in _inv if isinstance(_e, dict) and _e.get("item_mid") == _mid)
+        _add = min(max(_cnt - _have, 0), max(0, 3 - _have))   # 每件最多补到 3 个实例, 防止无限膨胀
+        for _i in range(_add):
+            _inv.append({"id": _base + _moved, "item_mid": _mid, "type": _et, "level": 1,
+                         "experience": 0, "girl_mid": 0, "favorite": 0, "in_lock": 1,
+                         "unlock_count": 0, "upgrade_count": 0, "combine_count": 0})
+            _moved += 1
+        _ic.pop(_k, None)   # 装备不属于消耗品库存, 无论补没补都要移出
+        _kinds += 1
+    if _kinds:
+        _save_state()
+        print(f"[*] 修复①a: {_kinds} 种装备从消耗品库存迁出, 补入衣橱 {_moved} 件"
+              f" (衣橱现有 {len(_inv)} 件)")
+_migrate_equip_from_item_counts()
+
+
+# ===== 2026-11-07 背包修复②: 衣橱实例 id 去重 =====
+# 背景: GM 批量播种装备时写入了重复的实例 id —— 实测 22898 件里有 38 件共用 7 个 id。
+#   客户端用 id 作装备主键, 同 id 的多件会被当成同一件 → 换装换错、强化加到别件、
+#   分解/锁定互相串台。表现为"物品点了没反应/效果不对"。
+# 做法: 每个撞号组保留一件(优先保留"被女孩穿着"的那件)的原 id, 其余重新编号。
+# 幂等: 只有检测到撞号才写盘。
+def _dedupe_equipment_ids():
+    _inv = [e for e in STATE.get("equipment_inventory", []) if isinstance(e, dict)]
+    if not _inv:
+        return
+    _worn = set()
+    for _g in (STATE.get("girl_equipment") or {}).values():
+        if isinstance(_g, dict):
+            for _v in _g.values():
+                if isinstance(_v, int) and _v > 1000:
+                    _worn.add(_v)
+    _groups = {}
+    for _e in _inv:
+        _groups.setdefault(_e.get("id"), []).append(_e)
+    _used = {e.get("id") for e in _inv}
+    _maxid = max((e.get("id") or 0) for e in _inv)
+    _renum = 0
+    _dupgrp = 0
+    for _iid, _g in _groups.items():
+        if len(_g) < 2:
+            continue
+        _dupgrp += 1
+        _keep = next((c for c in _g if c.get("item_mid") in _worn), _g[0])
+        for _c in _g:
+            if _c is _keep:
+                continue
+            _maxid += 1
+            while _maxid in _used:
+                _maxid += 1
+            _c["id"] = _maxid
+            _used.add(_maxid)
+            _renum += 1
+    if _renum:
+        _save_state()
+        print(f"[*] 修复②: 衣橱实例 id 去重 — {_dupgrp} 个撞号组, 重新编号 {_renum} 件")
+
+
+_dedupe_equipment_ids()
+
+
+# ===== 2026-11-08: 清除非装备类"幽灵装备" (姿势卡误标成泳装) =====
+# 现象: 衣橱 22902 件里有 25 件 item_mid 在 Equipment_Parameter 中根本不存在
+#       (35012/35201/35222/35226/35266/35290/35294/35557/37275/37277/38342/38344/
+#        38526/38528/39063/39065/39495/39878/39880/39909/39911/40056/40592/40594/35290)
+#       它们只出现在 Consume_Parameter / Item_Photospot_Table / PosecardShop* → 是姿势卡(消耗品),
+#       被历史迁移误标 type=1 当泳装塞进衣橱。客户端按泳装加载模型必然失败 → 佩戴后闪退.
+# 做法: 一次性剔除 item_mid 不在 Equipment_Parameter (EQUIP_TYPE_MAP) 里的实例.
+# 幂等: STATE.phantom_equip_pruned_v1.
+def _prune_phantom_equipment():
+    if STATE.get("phantom_equip_pruned_v1"):
+        return
+    _inv = STATE.get("equipment_inventory") or []
+    _keep, _drop = [], []
+    for _e in _inv:
+        if not isinstance(_e, dict):
+            _keep.append(_e)
+            continue
+        if _e.get("item_mid") in EQUIP_TYPE_MAP:
+            _keep.append(_e)
+        else:
+            _drop.append(_e)
+    if _drop:
+        STATE["equipment_inventory"] = _keep
+        print(f"[*] 清理幽灵装备: 剔除 {len(_drop)} 件非装备类条目 "
+              f"(mid={[d.get('item_mid') for d in _drop][:30]})")
+        _save_state()
+    STATE["phantom_equip_pruned_v1"] = True
+    _save_state()
+
+
+_prune_phantom_equipment()
+
+
+# ===== 2026-11-08: 衣橱库存归一 (同款超量截断 + 家具主数据补齐) =====
+# 现象①: 泳装 5873 件里有 94 个 item_mid 重复, 同款最多 13 件 —— 历史 GM 全量播种重复 append 的产物。
+#   购买逻辑(_process_shop_exchange)本身就限"同款最多 3 件", 库存里的超量只会让衣橱出现成排同款,
+#   既拖慢衣柜列表渲染, 又让"是否已拥有"的判定混乱。截断到 3 件, 优先保留被锁定/收藏的那件。
+# 现象②: 家具(type 67)主数据 656 种, 库存只有 655 → 缺 45220(播种漏项), 家具图鉴/摆放里少一件。
+#   按主数据补齐, 保持"该有的都有"。
+# 幂等: STATE.equip_inventory_normalized_v1
+KEEP_PER_ITEM = 3
+
+
+def _normalize_equipment_inventory():
+    if STATE.get("equip_inventory_normalized_v1"):
+        return
+    _inv = [e for e in (STATE.get("equipment_inventory") or []) if isinstance(e, dict)]
+    if not _inv:
+        STATE["equip_inventory_normalized_v1"] = True
+        _save_state()
+        return
+
+    # ① 同 (type, item_mid) 超过 KEEP_PER_ITEM 件 → 截断
+    _groups = {}
+    for _e in _inv:
+        _groups.setdefault((_e.get("type"), _e.get("item_mid")), []).append(_e)
+    _keep, _drop_n = [], 0
+    for _k, _g in _groups.items():
+        if len(_g) <= KEEP_PER_ITEM:
+            _keep.extend(_g)
+            continue
+        # 排序: 锁定/收藏优先保留, 其次 id 小的
+        _g2 = sorted(_g, key=lambda x: (0 if (x.get("in_lock") or x.get("favorite")) else 1,
+                                        x.get("id") or 0))
+        _keep.extend(_g2[:KEEP_PER_ITEM])
+        _drop_n += len(_g2) - KEEP_PER_ITEM
+
+    # ② 家具(type 67)按主数据补齐缺失 item_mid
+    _have67 = {e.get("item_mid") for e in _keep if e.get("type") == 67}
+    _miss67 = sorted(m for m, t in EQUIP_TYPE_MAP.items() if t == 67 and m not in _have67)
+    _maxid = max((e.get("id") or 0) for e in _keep) if _keep else 0
+    _used = {e.get("id") for e in _keep}
+    for _mid in _miss67:
+        _maxid += 1
+        while _maxid in _used:
+            _maxid += 1
+        _used.add(_maxid)
+        _keep.append({"id": _maxid, "item_mid": _mid, "type": 67, "level": 1, "experience": 0,
+                      "girl_mid": 0, "favorite": 0, "in_lock": 0, "unlock_count": 0,
+                      "upgrade_count": 0, "combine_count": 0})
+
+    if _drop_n or _miss67:
+        STATE["equipment_inventory"] = _keep
+        print(f"[*] 库存归一: 截断同款超量 {_drop_n} 件, 补家具 {_miss67}, 现 {len(_keep)} 件")
+        _save_state()
+    STATE["equip_inventory_normalized_v1"] = True
+    _save_state()
+
+
+_normalize_equipment_inventory()
+
+
+# ===== 2026-11-08: 场景全解锁 + 所有女孩姿势/表情全解锁 =====
+# 用户诉求: 岛主房间的"场景"全部解锁; 每个女孩都拥有全部"姿势"和"表情"。
+#
+# 【场景】
+#   数据源 Item_Photospot_Table.csv (447 条 = item_mid → scene_no), item 全部是 Consume_Parameter
+#   type=7 的"场景解锁道具"。本存档 type7 持有 0 件 → 岛主房间的场景列表几乎全灰。
+#   做法: 把这 447 件道具一次性放进 item_counts(count=1, 只补缺失的), 客户端道具列表里就有;
+#         同时 /v1/photospot 动态返回"全女孩 × 全场景"(见 _apply_state_overlay 顶部), 双保险。
+#   场景号全集 = CSV 里的 16 个 scene_no ∪ 抓包快照里出现过的 photo_spot_mid(1,2,3,4,5,7,9,13)。
+#   ⚠ 只使用"数据里真实出现过的 id": 客户端会拿 photo_spot_mid 去索引场景资源,
+#     凭空造的 id 会像 variation=74 那样越界崩进程(2026-11-08 已验证过一次)。
+#     若某天客户端更新后列表对不上, 只需要改 PHOTOSPOT_EXTRA_IDS 这一个常量。
+#
+# 【姿势 / 表情】
+#   Equipment_Parameter 里 type=37 = 姿势卡 1325 件, type=81 = 表情卡 2416 件。
+#   实证: 真服 /v1/girl/private 的 private_item_list 中, 每个女孩只有基础 6 张
+#   (50057 / 50066 / 50099 / 50100 / 50101 / 50102) + 活动零散几张, 且**不同女孩的额外卡不同**
+#   (girl4 有 50065/50093, girl11 有 50055/50165, girl13 有 50045/50051) → 姿势卡是"每女孩独立解锁"的。
+#   客户端拍照(岛主房间)的姿势/表情菜单读的就是 private_item_list 里 type37/81 的条目。
+#   做法: 给 32 个女孩补齐全部 type37 + type81 (32 × 3741 = 119576 条)。
+#   体积影响: private_items 150934 → 270510 条; /v1/girl/private 响应 ~6MB → ~9.4MB。
+#     与现有"全泳装发放"(144338 条 type1)同一量级, 客户端已能处理。
+#   幂等: STATE.scene_pose_unlocked_v1 (要重跑就删掉这个键)。
+#
+# 【回退方法 (若姿势/表情导致卡顿或闪退)】
+#   把下面的 _POSE_EXPR_UNLOCK_ENABLED 改成 False, 再执行一次:
+#     python -c "import json;d=json.load(open('server_state.json',encoding='utf-8'));\
+#       n=d['scene_pose_unlocked_v1']['base_private_items'];d['private_items']=d['private_items'][:n];\
+#       d.pop('scene_pose_unlocked_v1',None);json.dump(d,open('server_state.json','w',encoding='utf-8'),ensure_ascii=False)"
+#   (新增条目全部 append 在尾部, 截断到 base_private_items 即可完全还原; 场景解锁不受影响)
+SCENE_POSE_FLAG = "scene_pose_unlocked_v1"
+_POSE_EXPR_UNLOCK_ENABLED = False  # 姿势/表情全解锁开关 (场景解锁与之独立)
+#   【2026-11-08 13:40 关闭 — 实证客户端内存崩溃】开启后 private_items 150934→270510 条,
+#   /v1/girl/private 响应 9.38MB, 游戏启动直接弹 "Memory allocation (new) failed" 进不去。
+#   客户端对 private_item_list 的解析内存是按条目数线性涨的, 27 万条直接 OOM。
+#   除非找到"客户端能消化"的瘦身格式(比如只发 type37/81 而不发泳装), 否则别再开。
+# 抓包快照(real_responses /v1/photospot)里出现过的 photo_spot_mid, 属于"回忆景点"编号体系。
+PHOTOSPOT_EXTRA_IDS = (1, 2, 3, 4, 5, 7, 9, 13)
+
+
+def _photospot_all_ids():
+    """所有合法的 photo_spot_mid (外出地点), 升序。
+    来源: CR_Friendly3Photospot 的地点 id (客户端真实地点) ∪ 抓包快照里出现过的 id。
+    ⚠ Item_Photospot_Table 的 scene_no 是"场景道具"的归属编号, 与外出地点不是同一体系,
+      2026-11-08 13:35 版曾把两者混进 photo_spot_list (22 个 id), 用户实测地点判定仍全锁
+      且属"凭空造 id"风险源 —— 已改为只用本函数的 9 个有据可查的地点。"""
+    return sorted(set(FRIENDLY_PHOTOSPOT_MAP) | set(PHOTOSPOT_EXTRA_IDS))
+
+
+def _unlock_all_scenes_and_poses():
+    if STATE.get(SCENE_POSE_FLAG):
+        return
+    # ---- ① 场景解锁道具: 447 件 type7 全部按 count=1 进背包 ----
+    _ic = STATE.setdefault("item_counts", {})
+    _add_item = 0
+    for _mid in PHOTOSPOT_SCENE_MAP:
+        try:
+            _cur = int(_ic.get(str(_mid), _ic.get(_mid, 0)) or 0)
+        except (TypeError, ValueError):
+            _cur = 0
+        if _cur <= 0:
+            _ic[str(_mid)] = 1
+            _add_item += 1
+    # ---- ② 姿势/表情: 每个女孩补齐 type37 + type81 全集 ----
+    _pi = STATE.setdefault("private_items", [])
+    _base_len = len(_pi)          # 原有条目数: 回退时截断到此处即可 (新增条目一律 append 在尾部)
+    _add_pi = 0
+    _all_mids = POSE_ITEM_MIDS + EXPR_ITEM_MIDS   # 提到 if 外: 下方 print 无条件引用(避免 NameError)
+    if _POSE_EXPR_UNLOCK_ENABLED:
+        _have = set()
+        for _p in _pi:
+            if isinstance(_p, dict):
+                try:
+                    _have.add((int(_p.get("girl_mid")), int(_p.get("item_mid"))))
+                except (TypeError, ValueError):
+                    continue
+        _all_mids = POSE_ITEM_MIDS + EXPR_ITEM_MIDS
+        for _g in sorted(GIRL_MASTER_MAP):
+            for _mid in _all_mids:
+                if (_g, _mid) in _have:
+                    continue
+                _pi.append({"girl_mid": _g, "item_mid": _mid})
+                _have.add((_g, _mid))
+                _add_pi += 1
+    STATE[SCENE_POSE_FLAG] = {"base_private_items": _base_len,
+                              "added_items": _add_item, "added_private": _add_pi}
+    _save_state()
+    print(f"[*] 场景/姿势解锁: 补场景道具 {_add_item} 件 (共 {len(PHOTOSPOT_SCENE_MAP)}), "
+          f"补姿势/表情 {_add_pi} 条 (每女孩 {len(_all_mids)} 张 × {len(GIRL_MASTER_MAP)} 人), "
+          f"private_items 现 {len(_pi)} 条")
+
+
+_unlock_all_scenes_and_poses()
+
+
+# ===== 2026-11-08 14:48: 姿势卡/表情卡 —— 按"归属女孩"分类发放 =====
+# 【用户实测推翻的做法】上一版把 type37/81 的全部 3741 张都塞给 girl 3 → 客户端显示成功(证明
+#   private_item_list 就是解锁源), 但 girl 3 的菜单里出现了别的角色的姿势。用户原话:
+#   "这些姿势都是属于不同的女孩的, 你把所有女孩的姿势都加给了这一个女孩"。
+# 【归属从哪来 —— 硬证据】
+#   ① 日志(full_server.log 14:37:21 起): 客户端兑换姿势卡时发
+#        {"girl_mid":18,..,24, "item_mid_list":[56401,..,56407], "order_item_type":37}
+#      → 同一款卡的各女孩版本在 item_mid 上连续: girl 18→56401 … girl 24→56407。
+#   ② 表情侧交叉验证: girl 5 的 56073 与 girl 23 的 56091 相差 18, 正好等于女孩差 18;
+#      girl 5 的 56105 与 girl 23 的 56123 同样差 18 → 同一规律。
+#   ③ 真服抓包 /v1/girl/private: 883 对归属, 其中 type37/81 共 136 对 (pose_real_private.json)。
+#   ★ v4 (2026-11-08 16:10) 推翻两条旧结论:
+#     - Item_PoseGrowth_table 第 0 列是"成长组 id"(2~59), 不是 girl! 旧版当锚点用是错的;
+#     - 归属是多对多: 50093 同属 girl4+13, 50057/50066/50099~50102 是全女孩通用卡。
+#   ★ v5 (2026-11-08 16:35) 修正 v4 的过度保守 —— v4 把没有锚点的段全砍了, 表情从 88 张掉到 2 张:
+#     - 游戏编号规则是 (item - girl) % N == (段起点 - 2) % N, 不是"绝对斜率 m-g 恒定";
+#       type37 段 50812..51021 的 208 个真实兑换锚点 (m-g)%26 全等于 6 → 老款 N=26;
+#       真服表情两段 56070..56100 / 56102..56132 起点差 32、段长 31 → 新款 N=32(含 girl28~33)。
+#     - 所以表情按"段周期"铺满(短段<10 跳过), 姿势仍用 v4 的锚点链严格算法(用户已确认不乱)。
+#     - 另: 旧算法时期用户取消星标留下的 :81 黑名单会误伤新表情列表 → 启动时一次性清掉。
+#   (另已穷举确认: Equipment_Parameter 109 列 / PosecardShop 三表串联 / 193 张 CSV 反查 /
+#    Shop.csv+ShopItemList 商店分组 / 反向"每女孩一行"表 / 客户端 exe, 都不存在直接的
+#    item→girl 全量映射表 —— 游戏的归属表在客户端哈希资源包里, 服务器侧只能靠真实锚点 +
+#    从真实锚点统计出的编号规则。用户质疑"算法是不是自己想的"是对的, 现已改为只用有实证的规则。)
+_POSE_ASSIGN_MODE = "segment"   # "off"=不补 / "anchor"=只发锚点(100%准但每女孩只有 7~10 张) / "segment"=段内顺延(覆盖全)
+POSE_UNLOCK_FLAG = "pose_private_unlock_v5"
+POSE_OWNER_OVERRIDE = {}        # 手工修正表: {item_mid: girl_mid} —— 发现哪个 item 分错就直接钉死
+POSE_OWNER_OVERRIDE_SETS = {k: {v} for k, v in POSE_OWNER_OVERRIDE.items()}
+POSE_BASE_ITEMS = (50057, 50066, 50099, 50100, 50101, 50102)   # 通用基础卡: 32 个女孩都有(真实数据实证)
+# ★ v5: 表情(type81)按段铺满的最短段长。规则 (item - girl) % N == (段起点 - 2) % N,
+#   N=26(老款, 段长<27) 或 N=32(新款, 段长>=27, 覆盖 girl28~33)。短段不铺 —— 每段首张
+#   都会落到 girl2, 实测会让 girl2 虚增到 261 张。真服 4 条表情锚点 4/4 命中。
+POSE_EXPR_SEGMENT_MINLEN = 10
+_POSE_UNIVERSAL_CACHE = None
+_POSE_REAL_PAIRS_CACHE = None
+
+
+def _pose_universal_items():
+    """真服 /v1/girl/private 实证的"通用姿势/表情": 几乎每个女孩都拥有的 type37/81 道具。
+    这些卡不属于任何单一女孩, 应该发给所有女孩。"""
+    global _POSE_UNIVERSAL_CACHE
+    if _POSE_UNIVERSAL_CACHE is not None:
+        return _POSE_UNIVERSAL_CACHE
+    _rp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_real_private.json")
+    _cnt = {}
+    _n = 0
+    try:
+        import json as _json
+        with open(_rp, "r", encoding="utf-8") as _rf:
+            _data = _json.load(_rf)
+        _n = len(_data)
+        from collections import Counter as _C
+        _cc = _C()
+        for _g, _items in _data.items():
+            for _it in _items:
+                if EQUIP_TYPE_MAP.get(int(_it)) in (37, 81):
+                    _cc[int(_it)] += 1
+        _uni = {_m for _m, _c in _cc.items() if _c >= max(1, _n - 1)}
+    except Exception:
+        _uni = set(POSE_BASE_ITEMS)
+    _POSE_UNIVERSAL_CACHE = _uni
+    return _uni
+
+
+def _pose_real_pairs():
+    """真服 /v1/girl/private 的 (type37/81) 归属, item -> set(girl)。
+    这是硬证据(真服务器亲手写进每个女孩 private 列表的), 一条都不许丢, 也允许多女孩共用。"""
+    global _POSE_REAL_PAIRS_CACHE
+    if _POSE_REAL_PAIRS_CACHE is not None:
+        return _POSE_REAL_PAIRS_CACHE
+    _rp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_real_private.json")
+    _pairs = {}
+    try:
+        import json as _json
+        with open(_rp, "r", encoding="utf-8") as _rf:
+            for _g, _items in _json.load(_rf).items():
+                for _it in _items:
+                    if EQUIP_TYPE_MAP.get(int(_it)) in (37, 81):
+                        _pairs.setdefault(int(_it), set()).add(int(_g))
+    except Exception as _e:
+        print(f"[!] pose_real_private.json 读取失败: {_e}")
+    _POSE_REAL_PAIRS_CACHE = _pairs
+    return _pairs
+
+
+def _pose_segments_of(type_code):
+    """把某类型的 item_mid 切成"连续段"(相邻 id 相差 1 视为同段)。"""
+    _mids = sorted(_m for _m, _t in EQUIP_TYPE_MAP.items() if _t == type_code)
+    _segs = []
+    if not _mids:
+        return _segs
+    _s = _prev = _mids[0]
+    for _m in _mids[1:]:
+        if _m == _prev + 1:
+            _prev = _m
+            continue
+        _segs.append((_s, _prev))
+        _s = _prev = _m
+    _segs.append((_s, _prev))
+    return _segs
+
+
+POSE_ANCHOR_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_anchors.json")
+# 2026-11-08 15:05 —— 锚点从哪来(这是本功能的命根子, 别再猜):
+#   用户客户端在"维纳斯商店/活动商店"里逐张兑换姿势卡时, 每个请求都自带归属:
+#     POST /v1/special_order/exchange {"girl_mid":33,"item_mid_list":[25060],"order_item_type":37}
+#   一次会话攒下 555 条 (girl 2~33 全覆盖), 已固化到 pose_anchors.json —— 这是硬证据, 100% 可信。
+#   回测: 用这 555 条当锚点, 分类结果 555/555 全对。
+#   ★ 以后想让某张卡的归属"确定", 最省事的办法就是让客户端去商店兑一次, 日志里就有了。
+
+
+def _load_pose_anchors():
+    """item_mid -> girl_mid 的硬锚点。三个来源叠加, 后者覆盖前者。
+    ★ 2026-11-08 16:10 v4 重大修正: Item_PoseGrowth_table.csv 第 0 列是"成长组 id"(2~59 连续
+      编号, 出现 34~38 这些不存在的女孩), 不是 girl! 上一版把组 id 当 girl 注入了大量脏锚点
+      (如 51660→19, 其实 19 是组号), 这是"姿势分类乱"的重要来源之一。已彻底移除该来源。
+    """
+    _a = {}
+    # ① 从客户端兑换请求里攒下的锚点(固化文件) —— 用户真实购买记录, 100% 可信
+    if os.path.exists(POSE_ANCHOR_FILE):
+        try:
+            import json as _json
+            with open(POSE_ANCHOR_FILE, "r", encoding="utf-8") as _af:
+                for _k, _v in _json.load(_af).items():
+                    _a[int(_k)] = int(_v)
+        except Exception as _e:
+            print(f"[!] pose_anchors.json 读取失败: {_e}")
+    # ② 现场扫一遍日志(有新的兑换就自动吸收, 不用改代码)
+    _lg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "full_server.log")
+    if os.path.exists(_lg):
+        try:
+            import re as _re
+            _pat = _re.compile(r'\{"girl_mid":(\d+),"is_present":\w+,"item_mid_list":\[([0-9,]*)\],"order_item_type":(\d+)\}')
+            with open(_lg, "r", encoding="utf-8", errors="ignore") as _lf:
+                for _g, _its, _t in _pat.findall(_lf.read()):
+                    if int(_t) != 37:
+                        continue
+                    for _it in _its.split(","):
+                        if _it:
+                            _a[int(_it)] = int(_g)
+        except Exception:
+            pass
+    # ③ 真服抓包 /v1/girl/private 的 (girl, item) 归属(883 对里 type37/81 的 136 对)
+    _rp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_real_private.json")
+    if os.path.exists(_rp):
+        try:
+            import json as _json
+            with open(_rp, "r", encoding="utf-8") as _rf:
+                for _g, _items in _json.load(_rf).items():
+                    for _it in _items:
+                        _a[int(_it)] = int(_g)
+        except Exception as _e:
+            print(f"[!] pose_real_private.json 读取失败: {_e}")
+    # ④ 历史实证: girl 18~24 → 56401~56407
+    for _it, _ag in zip(range(56401, 56408), range(18, 25)):
+        _a[_it] = _ag
+    return {_m: _g for _m, _g in _a.items() if _g in GIRL_MASTER_MAP}
+
+
+def _load_pose_owner_map_file():
+    """v5 固化映射基准(pose_owner_map.json)。
+    full_server.log 会被启动脚本清掉(2026-11-08 实测: 重启后 224 条兑换锚点全部消失),
+    如果每次都纯靠日志重算, 姿势/表情数量会随日志存废忽多忽少。
+    这里把「已经实际落库、经过实证的归属」固化成 JSON 作为重建基准, 新兑换的锚点仍会叠加。
+    """
+    _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_owner_map.json")
+    _out = {}
+    if os.path.exists(_p):
+        try:
+            import json as _json
+            with open(_p, "r", encoding="utf-8") as _f:
+                for _k, _v in _json.load(_f).items():
+                    _gs = {int(_x) for _x in _v} & set(GIRL_MASTER_MAP)
+                    if _gs:
+                        _out[int(_k)] = _gs
+            print(f"[*] 已加载固化姿势/表情映射 {len(_out)} 张")
+        except Exception as _e:
+            print(f"[!] pose_owner_map.json 读取失败: {_e}")
+    return _out
+
+
+def _build_pose_owner_map(_anchors=None):
+    """item_mid -> set(girl_mid) (type37 姿势卡 / type81 表情卡)。
+    ★ 2026-11-08 16:10 v4 重写 —— 依据三个实证结论:
+      ① 真服 /v1/girl/private 实证: 50057/50066/50099/50100/50101/50102 被**所有**女孩共同
+         拥有 → 它们是"通用姿势", 不属于任何单一女孩, 必须发给每个女孩。
+      ② 真服实证 50093 同时属于 girl4 和 girl13 → 归属是**多对多**, 所以返回 set。
+      ③ 兑换锚点实证: 段内"item_mid +1 ↔ girl +1"的线性关系只在同一款内成立;
+         54603..54631 这类"乱序段"是通用姿势被不同女孩购买留下的锚点, 绝不能按 26 循环外推。
+    【算法】姿势严格靠锚点(用户实测已确认不乱), 表情按游戏编号规则铺段:
+      a) 相邻锚点 Δitem == Δgirl 且距离 ≤64 → 区间内线性填充(同款姿势, 实测全部成立);
+      b) 连续 ≥5 个锚点同女孩且 id 连号 → 整块填该女孩(新角色专属块, 如 25060..25071=girl33);
+      c) 【v5 新增】type81 每个长度>=10 的段按 (item-girl)%N == (段起点-2)%N 铺满,
+         N=26/32 按段长自适应。这条规则来自 208 个真实兑换锚点 + 真服 4 条表情归属,
+         不是凭空假设; v4 因为用错判定方式把表情砍到每女孩 2 张。
+      硬锚点本身无条件收录。
+    """
+    _anchors = _anchors if _anchors is not None else _load_pose_anchors()
+    # ---- 通用姿势: 真服数据里几乎所有女孩都有 → 从单属锚点里摘出来 ----
+    _uni = _pose_universal_items()
+    # ---- 真服 (girl, item) 对直接按多对多注入(50093 同时属于 girl4+13 这类共用卡) ----
+    # ---- 固化映射作基准(防止 full_server.log 被清后数量缩水), 再叠加真服归属 ----
+    _real_pairs = _pose_real_pairs()
+    _out = _load_pose_owner_map_file()
+    for _m, _gs in _real_pairs.items():
+        _out.setdefault(_m, set()).update(_gs)
+    for _t in (37, 81):
+        for _s, _e in _pose_segments_of(_t):
+            # ★ v5 (2026-11-08): type81 表情按【游戏自己的编号规则】铺段, 不是凭空猜的。
+            #   实证 A(真服 /v1/girl/private): 56073→girl5、56091→girl23 属于段 56070..56100,
+            #       56105→girl5、56123→girl23 属于段 56102..56132;
+            #       两段各自 (item-girl)%26 == (段起点-2)%26, 4/4 全中。
+            #   实证 B(客户端兑换请求): type37 段 50812..51021 的 182 个锚点 (item-girl)%26 全=6,
+            #       100% 吻合 —— 姿势/表情共用同一套"一款 26 连号 = girl2~27 循环"的编号体系。
+            #   v4 误用"绝对斜率 m-g 恒定"判定, 把这类段当成乱序砍掉 → 表情从 88 张掉到 2 张。
+            #   短段(< POSE_EXPR_SEGMENT_MINLEN)不铺: 每段首张都归 girl2, 实测会让 girl2 虚增。
+            #   ★ 循环周期自适应: 老款(段长<=26)是 26 循环(当时只有 girl2~27);
+            #     新增 6 名角色后的新款(段长>=27)是 32 循环(覆盖 girl2~33)。
+            #     实证: 真服两段表情 56070..56100(31张) 与 56102..56132(31张) 起点正好差 32,
+            #     按 32 算两段的 C 都是 4, 4/4 锚点全中; 按 26 算则 girl28~33 一张表情都没有。
+            if _t == 81 and _e - _s + 1 >= POSE_EXPR_SEGMENT_MINLEN:
+                _N81 = 32 if _e - _s + 1 >= 27 else 26
+                _C81 = (_s - 2) % _N81
+                for _m in range(_s, _e + 1):
+                    _g81 = ((_m - _C81 - 2) % _N81) + 2
+                    if _g81 in GIRL_MASTER_MAP:
+                        _out.setdefault(_m, set()).add(_g81)
+            _pts = sorted((_m, _g) for _m, _g in _anchors.items()
+                          if _s <= _m <= _e and _m not in _uni
+                          and EQUIP_TYPE_MAP.get(_m) == _t)
+            if not _pts:
+                continue
+            # a) 线性区间填充
+            for (_m1, _g1), (_m2, _g2) in zip(_pts, _pts[1:]):
+                if 0 < _m2 - _m1 <= 64 and _g2 - _g1 == _m2 - _m1:
+                    for _m in range(_m1, _m2 + 1):
+                        _out.setdefault(_m, set()).add(_g1 + (_m - _m1))
+            # b) 同女孩连号块 (≥5 个连续锚点同女孩)
+            _run_start = 0
+            for _i in range(1, len(_pts) + 1):
+                _same = (_i < len(_pts) and _pts[_i][1] == _pts[_i - 1][1]
+                         and _pts[_i][0] == _pts[_i - 1][0] + 1)
+                if _same:
+                    continue
+                if _i - _run_start >= 5:
+                    for _m in range(_pts[_run_start][0], _pts[_i - 1][0] + 1):
+                        _out.setdefault(_m, set()).add(_pts[_run_start][1])
+                _run_start = _i
+            # 锚点无条件收录
+            for _m, _g in _pts:
+                _out.setdefault(_m, set()).add(_g)
+            # c) 仅表情(type81): "整款补全" —— 表情是全女孩通用的脸, 不存在姿势那种
+            #    10 人子集款; 实测锚点链斜率恒为 1(56073→girl5 / 56091→girl23, Δm=Δg=18;
+            #    56401..56407→girl18..24 同款)。所以只要有 ≥2 个锚点构成斜率 1 的链,
+            #    就把整款补全到 girl2~33(限定在本连续段内)。
+            #    姿势(type37)绝不做这种外推 —— 实测姿势有 10 人子集款(51640..51659)和
+            #    通用款乱序锚点(54603..54631), 外推必错。
+            if _t == 81:
+                _runs = []
+                _r = [_pts[0]]
+                for _pr in zip(_pts, _pts[1:]):
+                    if _pr[1][0] - _pr[0][0] == _pr[1][1] - _pr[0][1] and _pr[1][0] - _pr[0][0] <= 64:
+                        _r.append(_pr[1])
+                    else:
+                        _runs.append(_r)
+                        _r = [_pr[1]]
+                _runs.append(_r)
+                for _run in _runs:
+                    if len(_run) < 2:
+                        continue
+                    _m0, _g0 = _run[0]
+                    _off = _m0 - _g0
+                    for _gg in range(2, 34):
+                        _mm = _gg + _off
+                        if _s <= _mm <= _e and _gg in GIRL_MASTER_MAP:
+                            _out.setdefault(_mm, set()).add(_gg)
+    _out.update(POSE_OWNER_OVERRIDE_SETS)
+    return {_m: _gs for _m, _gs in _out.items() if _gs & set(GIRL_MASTER_MAP)}
+
+
+_POSE_OWNER_CACHE = None
+
+
+def _pose_owner_map_cached():
+    """_build_pose_owner_map() 要遍历 3741 个 mid + 切段, 每次请求都算太慢 → 算一次缓存住。
+    (映射只依赖静态 CSV 和日志锚点, 进程内不会变, 缓存安全。)"""
+    global _POSE_OWNER_CACHE
+    if _POSE_OWNER_CACHE is None:
+        _POSE_OWNER_CACHE = _build_pose_owner_map()
+    return _POSE_OWNER_CACHE
+
+
+def _unlock_poses_in_private():
+    if STATE.get(POSE_UNLOCK_FLAG):
+        return
+    _owner = _build_pose_owner_map()
+    _pi = STATE.setdefault("private_items", [])
+    _removed = 0
+    # ---- 回滚上一版的分类结果(v2~v4 都是纯 append, 按记录的 base_private_items 截断即可复原) ----
+    for _prev in ("pose_private_unlock_v4", "pose_private_unlock_v3", "pose_private_unlock_v2"):
+        _v = STATE.get(_prev)
+        if isinstance(_v, dict) and _v.get("base_private_items"):
+            _cut = int(_v["base_private_items"])
+            if 0 < _cut < len(_pi):
+                _removed += len(_pi) - _cut
+                STATE["private_items"] = _pi = _pi[:_cut]
+                print(f"[*] 已回滚 {_prev}: private_items → {_cut} 条")
+            break
+    _base = len(_pi)
+    _have = set()
+    for _p in _pi:
+        if isinstance(_p, dict):
+            try:
+                _have.add((int(_p.get("girl_mid")), int(_p.get("item_mid"))))
+            except (TypeError, ValueError):
+                continue
+    _added = 0
+    # ① 通用姿势: 每个女孩都要有(真服实证)
+    _uni = _pose_universal_items()
+    for _g in sorted(GIRL_MASTER_MAP):
+        for _m in sorted(_uni):
+            if (_g, _m) in _have:
+                continue
+            _pi.append({"girl_mid": _g, "item_mid": _m})
+            _have.add((_g, _m))
+            _added += 1
+    # ② 映射表: item → {girls}(v4 起多对多)
+    for _g in sorted(GIRL_MASTER_MAP):
+        for _m, _gs in _owner.items():
+            if _g not in _gs or (_g, _m) in _have:
+                continue
+            _pi.append({"girl_mid": _g, "item_mid": _m})
+            _have.add((_g, _m))
+            _added += 1
+    _t37 = sum(1 for _m in _owner if EQUIP_TYPE_MAP.get(_m) == 37)
+    _t81 = sum(1 for _m in _owner if EQUIP_TYPE_MAP.get(_m) == 81)
+    STATE[POSE_UNLOCK_FLAG] = {"base_private_items": _base, "mode": "v5",
+                               "removed": _removed, "mapped": len(_owner), "added": _added,
+                               "universal": sorted(_uni)}
+    _save_state()
+    from collections import Counter as _C
+    _per = _C()
+    for _m, _gs in _owner.items():
+        for _g in _gs:
+            _per[_g] += 1
+    _mn = min(_per.values()) if _per else 0
+    _mx = max(_per.values()) if _per else 0
+    print(f"[*] 姿势/表情分类 v5: 映射 {len(_owner)} 张 (姿势{_t37}/表情{_t81}), "
+          f"通用卡 {len(_uni)} 张×全女孩, 回滚旧数据 {_removed} 条, 新增 {_added} 条, "
+          f"每女孩映射 {_mn}~{_mx} 张, private_items {_base} → {len(_pi)} 条")
+
+
+def _migrate_v5_favorite():
+    """v5 一次性迁移: 清掉 v3/v4 乱分类时期用户在表情页取消星标留下的黑名单。
+    那批 item 是旧算法算出来的, v5 的表情列表已按游戏编号规则重建; 旧黑名单会误伤新列表
+    (实测 STATE 里 girl3:81 有 27 条黑名单, 会把新铺出来的表情挡掉 —— 用户说的"表情全没了")。
+    姿势(:37)黑名单保留, 用户主动取消的姿势星标依然有效。"""
+    if STATE.get("pose_expr_migrated_v5"):
+        return
+    _del = STATE.get("pose_expr_removed", {})
+    _n = 0
+    for _k in list(_del):
+        if _k.endswith(":81") and _del[_k]:
+            _n += len(_del[_k])
+            _del[_k] = []
+    STATE["pose_expr_migrated_v5"] = {"cleared_expr_blacklist": _n}
+    _save_state()
+    if _n:
+        print(f"[*] v5: 清除旧表情黑名单 {_n} 条")
+
+
+_migrate_v5_favorite()
+_unlock_poses_in_private()
+
+
+# ===== 2026-11-08 13:50: 所有女孩两两组合的 friendly(亲密)等级拉满 → 外出地点全解锁 =====
+# 【判定实证】用户截图: 外出界面"地点"上写"亲密等级达到后才能解锁";
+#   CR_Friendly3Photospot.csv = [所需 friendly 等级, 地点id] (0→2, 40→1, 60→3, 70→10, 80→7, 100→4, 120→5);
+#   真服 /v1/room/girl/friendly 样本: value=45→level 3, value=11185→level 21 (level 随 value 累计).
+# 【病根】STATE.friendly_value 是空的 → /v1/room/girl/friendly 返回 [] → 所有组合 level=0 → 地点全锁.
+# 【做法】32 个女孩的全部有序对 (32×31=992 条) 一次性补齐: value=9999999, level=120 (CR 表最高需求 120).
+#   客户端判定是 "level >= 地点需求", 120 覆盖全部; unlock_count 沿用真服结构。
+#   幂等: STATE.friendly_maxed_v1; 回退: STATE["friendly_value"]=[] 后删该键。
+FRIENDLY_MAX_LEVEL = 120
+FRIENDLY_MAX_VALUE = 9999999
+
+
+def _max_all_friendly():
+    if STATE.get("friendly_maxed_v1"):
+        return
+    _fv = STATE.setdefault("friendly_value", [])
+    _have = set()
+    for _f in _fv:
+        if isinstance(_f, dict):
+            try:
+                _have.add((int(_f.get("girl_mid")), int(_f.get("friendly_girl_mid"))))
+            except (TypeError, ValueError):
+                continue
+    _girls = sorted(GIRL_MASTER_MAP)
+    _add_fv = 0
+    for _g1 in _girls:
+        for _g2 in _girls:
+            if _g1 == _g2 or (_g1, _g2) in _have:
+                continue
+            _fv.append({"girl_mid": _g1, "friendly_girl_mid": _g2,
+                        "value": FRIENDLY_MAX_VALUE, "level": FRIENDLY_MAX_LEVEL,
+                        "unlock_count": 0})
+            _have.add((_g1, _g2))
+            _add_fv += 1
+    STATE["friendly_maxed_v1"] = True
+    _save_state()
+    print(f"[*] 亲密等级拉满: 补 {len(_girls)} 女孩 × 组合 friendly {_add_fv} 条 "
+          f"(level={FRIENDLY_MAX_LEVEL}, value={FRIENDLY_MAX_VALUE}), 共 {len(_fv)} 条")
+
+
+_max_all_friendly()
+
+
+# ===== 2026-11-08: 岛主房间家具摆放自愈 + 家具屏蔽名单 (修"装家具→卡住→闪退") =====
+# 【崩溃实证】dump/doaxvv-20261108-124312-13668.dmp
+#   exception 0xc0000005, ExceptionInformation = [0x0(读), 0x10(地址)] → 读 *(0 + 0x10)
+#   崩溃指令在 sub_142DA2F40+0x52: `v11 = *(DWORD *)(v10 + 16)`, 其中 v10 来自
+#   `sub_142DA2D40(a2)` 这个 id→对象 的哈希表查找; a2 == 0 时代码直接令 v10 = 0,
+#   紧接着无条件解引用 → 进程 abort。也就是说: **客户端收到了一个 id 为 0 / 查不到的家具条目**。
+# 【数据实证】STATE.furniture_myset_home 的 7 条摆放, 实例 id 全部不在 equipment_inventory 里:
+#   158143/158144/158145(参考样本里的旧 id) 与 4528388208/210/211、4593476321(旧版"毫秒时间戳"
+#   分配器产出的脏 id, 已在今日 _alloc_equip_ids 修复)。其中 45430 的 layout_mid=0,
+#   而真私服参考样本(myset/home 8 条)里 0 号位从未出现 → 0 号位是非法摆位。
+# 【做法】
+#   ① 启动自愈: 逐条校验 → item_mid 必须 type67 且本人持有、layout_mid 必须 0<=slot<32 且不与他人
+#      撞位; 实例 id 一律换成本人该家具的**真实实例 id**(客户端才能解析); 校验不过的移出布局,
+#      记入 STATE.furniture_quarantine(保留原始数据, 可人工还原)。
+#   ⚠ 2026-11-08 13:03 修正: layout_mid=0 是**合法摆位**! 实测客户端把 45805 摆在 0 号位
+#      (POST update_furniture_list 实录), 之前把 0 当非法导致"摆放后无法保存"。已改回 0<=slot<32。
+#   ② 屏蔽名单: STATE.furniture_blocklist = [item_mid, ...] → 该家具不出现在 /v1/furniture/,
+#      也不会被摆放(已摆放的会被移出)。怀疑某件家具导致闪退时, 把它的 item_mid 加进来即可。
+#   ③ 响应侧二次兜底: /v1/furniture/myset* 返回前再过滤一遍, 防止运行期又写进脏数据。
+#   幂等: STATE.furniture_layout_sanitized_v1
+MAX_LAYOUT_SLOT = 32          # 房间摆位上限 (实测样本用到的位: 3,7,8,9,10,24,28,29)
+
+# 默认屏蔽的家具 (item_mid)。45430 = 本次闪退的首要嫌疑: layout_mid=0 + 脏实例 id。
+# 想解除屏蔽时把这个 mid 从列表删掉、并删掉 STATE.furniture_layout_sanitized_v1 即可重新校验。
+DEFAULT_FURNITURE_BLOCKLIST = (45430,)
+
+
+def _furniture_blocklist():
+    _bl = STATE.get("furniture_blocklist")
+    if _bl is None:
+        _bl = list(DEFAULT_FURNITURE_BLOCKLIST)
+    _out = set()
+    for _x in _bl:
+        try:
+            _out.add(int(_x))
+        except (TypeError, ValueError):
+            pass
+    return _out
+
+
+def _furniture_instances():
+    """item_mid -> [真实实例 id, ...] (仅 type67), 按 id 升序"""
+    _inst = {}
+    for _e in (STATE.get("equipment_inventory") or []):
+        if isinstance(_e, dict) and _e.get("type") == 67:
+            _inst.setdefault(_e.get("item_mid"), []).append(_e.get("id"))
+    for _v in _inst.values():
+        _v.sort(key=lambda x: (x is None, x))
+    return _inst
+
+
+def _sanitize_furniture_layout(force=False):
+    if STATE.get("furniture_layout_sanitized_v1") and not force:
+        return
+    _layout = STATE.get("furniture_myset_home")
+    if not isinstance(_layout, list):
+        STATE["furniture_layout_sanitized_v1"] = True
+        _save_state()
+        return
+    _inst = _furniture_instances()
+    _bl = _furniture_blocklist()
+    _slots, _ids = set(), set()
+    _keep, _quar = [], []
+    for _it in _layout:
+        if not isinstance(_it, dict):
+            continue
+        try:
+            _mid = int(_it.get("item_mid") or 0)
+            _lm = int(_it.get("layout_mid") or 0)
+            _ry = int(_it.get("rot_y") or 0)
+            _oid = int(_it.get("id") or 0)
+        except (TypeError, ValueError):
+            _quar.append({"id": _it.get("id"), "item_mid": _it.get("item_mid"),
+                          "layout_mid": _it.get("layout_mid"), "reason": "parse_error"})
+            continue
+        _why = None
+        if _mid in _bl:
+            _why = "blocked"
+        elif EQUIP_TYPE_MAP.get(_mid) != 67:
+            _why = "not_furniture"
+        elif _mid not in _inst or not _inst[_mid]:
+            _why = "not_owned"
+        elif not (0 <= _lm < MAX_LAYOUT_SLOT):
+            _why = "layout_out_of_range"
+        elif _lm in _slots:
+            _why = "duplicate_slot"
+        if _why:
+            _quar.append({"id": _oid, "item_mid": _mid, "layout_mid": _lm, "reason": _why})
+            continue
+        # 实例 id 必须是本人真实持有的那件 (旧的脏 id 一律替换)
+        if _oid in _inst[_mid] and _oid not in _ids:
+            _nid = _oid
+        else:
+            _cands = [i for i in _inst[_mid] if i not in _ids]
+            _nid = _cands[0] if _cands else _inst[_mid][0]
+        _ids.add(_nid)
+        _slots.add(_lm)
+        _keep.append({"id": _nid, "item_mid": _mid, "layout_mid": _lm, "rot_y": _ry})
+    _changed = (_keep != _layout) or bool(_quar)
+    if _changed:
+        STATE["furniture_myset_home"] = _keep
+        _qlog = list(STATE.get("furniture_quarantine") or []) + _quar
+        STATE["furniture_quarantine"] = _qlog[-100:]
+        print(f"[*] 家具布局自愈: 保留 {len(_keep)} 条, 移出 {len(_quar)} 条 -> {_quar}")
+        for _q in _quar:
+            print(f"    移出 layout_mid={_q.get('layout_mid')} item_mid={_q.get('item_mid')} "
+                  f"id={_q.get('id')} 原因={_q.get('reason')}")
+        _save_state()
+    STATE["furniture_layout_sanitized_v1"] = True
+    _save_state()
+
+
+def _valid_furniture_layout(layout):
+    """响应侧兜底: 只放出客户端能解析的布局条目。
+    脏 id / 未持有 / 非法摆位 / 撞位 / 被屏蔽 的条目一律不返回 —— 这类条目会让客户端
+    查表得到 0 并在 sub_142DA2F40 里解引用空指针 (0xc0000005) 直接闪退。"""
+    _inst = _furniture_instances()
+    _bl = _furniture_blocklist()
+    _slots, _out = set(), []
+    for _it in layout or []:
+        if not isinstance(_it, dict):
+            continue
+        try:
+            _mid = int(_it.get("item_mid") or 0)
+            _lm = int(_it.get("layout_mid") or 0)
+            _ry = int(_it.get("rot_y") or 0)
+            _oid = int(_it.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if _mid <= 0 or _mid in _bl:
+            continue
+        if _mid not in _inst or not _inst[_mid]:
+            continue
+        if not (0 <= _lm < MAX_LAYOUT_SLOT) or _lm in _slots:
+            continue
+        _ids = _inst[_mid]
+        if _oid not in _ids:
+            _oid = _ids[0]
+        _slots.add(_lm)
+        _out.append({"id": _oid, "item_mid": _mid, "layout_mid": _lm, "rot_y": _ry})
+    return _out
+
+
+_sanitize_furniture_layout()
+
+
+# ===== 2026-11-07 商店/背包修复 ③: 给"当前开放商店"用到的货币补足余额 =====
+# 背景: 商品能不能点, 由客户端按本地持有的货币数量判定。缺货币 → 按钮灰/点了没反应。
+# 实证: 商店用的 point_type 有 6/7/8/9/10/12/44/45/46/47/543/544… 一大半背包里根本没有
+#       (point_type→item_mid 映射见 ShopPointTypeLink.csv), 而 35103~35178 恰好有 → 只有部分商店能用。
+# 做法: 启动时按 CSV 解析"当前开放商店"实际用到的 point_type, 一次性把对应货币补到 999999。
+# 幂等: STATE.shop_currency_seeded_v1 标记, 只做一次(不覆盖玩家后续消耗)。
+def _seed_shop_currencies():
+    if STATE.get("shop_currency_seeded_v1"):
+        return
+    import csv as _csv3
+    _now = game_now_str()
+    try:
+        _need_ids = set()          # 当前开放商店里出现的 ShopItemList 行 id
+        with open(os.path.join(CSV_MASTER, "Shop.csv"), encoding="utf-8-sig") as _f:
+            for _r in _csv3.reader(_f):
+                if len(_r) < 5:
+                    continue
+                if _r[4] and _r[4] <= _now:     # end_time 已过 → 该切片失效
+                    continue
+                if _r[3] and _r[3] > _now:      # start_time 还没到
+                    continue
+                _need_ids.update(x for x in _r[5:] if x)
+        _pts = set()               # 用到的 point_type
+        with open(os.path.join(CSV_MASTER, "ShopItemList.csv"), encoding="utf-8-sig") as _f:
+            for _r in _csv3.reader(_f):
+                if len(_r) > 5 and _r[0] in _need_ids:
+                    _pts.add(_r[4])
+        _link = {}
+        with open(os.path.join(CSV_MASTER, "ShopPointTypeLink.csv"), encoding="utf-8-sig") as _f:
+            for _r in _csv3.reader(_f):
+                if len(_r) >= 2 and _r[0]:
+                    _link[_r[0]] = _r[1]
+    except Exception as _e:
+        print(f"[!] 商店货币铺底失败(跳过): {_e}")
+        return
+    _ic = STATE.setdefault("item_counts", {})
+    _granted = 0
+    for _pt in _pts:
+        _im = _link.get(_pt)
+        if not _im:
+            continue
+        try:
+            _mid = int(_im)
+        except ValueError:
+            continue
+        if int(_ic.get(_mid, 0) or 0) >= 999999:
+            continue
+        _ic[_mid] = 999999
+        _granted += 1
+    STATE["shop_currency_seeded_v1"] = True
+    _save_state()
+    print(f"[*] 修复③ 商店货币铺底: {_granted} 种货币补到 999999 "
+          f"(当前开放商店涉及 {len(_pts)} 类 point_type / {len(_need_ids)} 个商品行)")
+_seed_shop_currencies()
+if not _seed_added:
     print(f"[*] 装备库存: {len(_inv_seed)} 件, 私人套装 {len(_spi_seed)} 条 (已播种)")
 # 2026-09-14: 发型崩溃自动回退 — 重启时检查未确认的发型变更(=上次崩溃), 回退到旧值
 _hair_revert = STATE.pop("_hair_revert", None)
@@ -1276,10 +2360,72 @@ def apply_girl_state(girl_obj):
     # 但玩家在打扮里手动关闭过(STATE.girl_visual_state 存了 b)则尊重该值, 实现可开可关(实时切换)
     if not (isinstance(_vs, dict) and "visual_state_flag_b" in _vs):
         girl_obj["visual_state_flag_b"] = 1
+    girl_obj["level"] = 100
+    girl_obj["experience"] = 999999
+    girl_obj["affection_level"] = 339
+    girl_obj["affection_point"] = 999999
+    girl_obj["partner_count"] = 999
+    girl_obj["venus_memory"] = 999
+    girl_obj["girly"] = 999
     return girl_obj
 
 # 2026-09-11 性能优化: 装备归属映射缓存 (REAL_RESPONSES 启动后不变, 只构建一次, 供所有女孩/请求复用)
 _EQUIP_OWNER_CACHE = None
+
+
+def _item_mid_to_instance():
+    """item_mid(模板ID) -> 衣橱里的第一个实例 (同款多件取 id 最小那件)"""
+    _m = {}
+    for _e in STATE.get("equipment_inventory", []):
+        if isinstance(_e, dict) and _e.get("item_mid"):
+            _im = _e["item_mid"]
+            _old = _m.get(_im)
+            if _old is None or int(_e.get("id") or 0) < int(_old.get("id") or 0):
+                _m[_im] = _e
+    return _m
+
+
+def _deck_instance_id(inst):
+    """卡组端点只接受真服量级的装备实例ID (<= int32 上限).
+
+    本地衣橱 22741 件里绝大多数实例 id 在 20~46 亿段(家具/其他空间共用),
+    真服 girl/equipment 的 *_equipment_item_id 最大约 30 亿。把 45 亿段的
+    实例塞进 *_equipment_item_id, 客户端按装备实例查表会落空。
+    2026-11-08: 客户端进入挑战赛界面时 APPCRASH(0xc0000005) 的防御性修正。
+    """
+    if not isinstance(inst, dict):
+        return 0
+    try:
+        _id = int(inst.get("id") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return _id if 0 < _id <= 2147483647 else 0
+
+
+def _build_girl_equipment_one(girl_mid):
+    """构造单个女孩的装备响应 (GET /v1/girl/{mid}/equipment)。
+
+    2026-11-07 修复: 原实现不区分 GET/POST, 把 GET 也当成"回显请求参数", 而 GET 没有请求体
+    → 永远返回全 0。表现: 女孩身上明明穿着泳装, 点进打扮页显示"未装备"; 此时再点保存,
+    客户端按空装备提交 → 装备被真的卸下, 衣服就"消失"了。
+
+    数据源: STATE.girl_equipment 里存的是 *模板ID* (item_mid 型字段), 客户端要的是
+    *实例ID* (equipment_item_id 型字段), 必须再过一遍衣橱换取实例。
+    真实响应还带 item_equipment_list(穿戴中装备的完整实例数据, 含等级/技能), 一并返回。
+    """
+    _gm = int(girl_mid)
+    _sg = STATE.get("girl_equipment", {}).get(str(_gm), {}) or {}
+    _im2e = _item_mid_to_instance()
+    _entry = {"owner_id": OWNER_ID, "girl_mid": _gm}
+    _items = []
+    for _eq_f, _girl_f in _GIRL_FIELD_MAP.items():
+        _im = _sg.get(_girl_f)
+        _inst = _im2e.get(_im) if _im else None
+        _entry[_eq_f] = int(_inst.get("id") or 0) if _inst else 0
+        if _inst:
+            _items.append(dict(_inst))
+    return {"girl_equipment_list": [_entry], "item_equipment_list": _items}
+
 
 def _equipment_owner_map():
     """构建 item_mid -> {"type": 类型, "owners": 归属girl_mid集合} 的映射 (来自装备实例列表).
@@ -1356,10 +2502,43 @@ def _inject_state_wallet(resp):
         resp["wallet_list"] = [_cp.deepcopy(w)]
     return resp
 
+# ---- 2026-11-08: 查询类端点必须返回稳定快照, 不能每次请求轮换一份抓包 ----
+# 病根: _pick_rotate 原本对全部端点一律推进游标, 于是"读当前状态"的接口每请求一次
+#   就换一份不同时间点的抓包: mission/multiple 任务数 69/163/1011 来回跳、
+#   owner/profile/list 好友 1/10/100 条、guestpoint/accept 领取点数 0/50、
+#   honor 称号 179/184 条、gacha/ticket 券 14/15/16 种、quest/guest/list 13 份客串。
+#   客户端会看到任务进度/好友/点数/称号乱跳, 有时还会拿到结构不同的响应。
+# 做法: 只对这些端点固定取 pool[0] 且不推进游标; 不新增/删除任何字段,
+#   各分支在 _pick_rotate 之后的 STATE 叠加(gacha 券库存、抽卡进度、女孩状态等)全部保留。
+# 需要轮换的动作类端点(quest/start 阶段机、round/start、gacha/draw、present、
+#   casino、giftbox/accept 等)不在表内, 行为完全不变。
+# 池元素为 list 的端点(mission/8、option/item_auto_lock、owner/parameter/accept)
+#   本身每次内容一致, 不入表以避免改变返回类型。
+_STABLE_QUERY_ENDPOINTS = frozenset({
+    # 任务
+    "/v1/mission/multiple", "/v1/mission/1", "/v1/mission/3", "/v1/mission/5",
+    "/v1/mission/6", "/v1/mission/7", "/v1/mission/reward_count",
+    # 好友 / 客串 / 资料
+    "/v1/friendship", "/v1/friendship/received", "/v1/friendship/sent",
+    "/v1/owner/profile/list", "/v1/quest/guest/list",
+    # 领取 / 检查 / 设置回执
+    "/v1/owner/guestpoint/accept", "/v1/owner/checklogin", "/v1/owner/checkedat",
+    "/v1/giftbox/count", "/v1/giftbox/fetch", "/v1/affection_reward",
+    # 称号 / 抽卡 / 拍照点 / 商店 / 其它只读清单
+    "/v1/honor", "/v1/gacha/ticket", "/v1/gacha/list", "/v1/photospot",
+    "/v1/ranking/id/active", "/v1/shop/list", "/v1/owner_referral/get",
+    "/v1/subscription", "/v1/information/global", "/v1/furniture/myset/home",
+    "/v1/matching_pvp/active",
+})
+
+
 def _pick_rotate(pool, key):
     """从响应池轮换取一个, 返回 (resp, 是否成功)"""
     if not pool:
         return None, False
+    # 查询类端点: 固定同一份快照, 不推进游标 (见上方注释)
+    if key in _STABLE_QUERY_ENDPOINTS and isinstance(pool[0], dict):
+        return pool[0], True
     # 2026-09-05: 游标从 STATE 持久化 (跨重启保持轮换进度)
     cursors = STATE.setdefault("dyn_cursors", {})
     i = cursors.get(key, 0) % len(pool)
@@ -1379,6 +2558,247 @@ def _set_quest_start_idx(mid, idx):
 
 def _set_quest_end_idx(mid, idx):
     STATE.setdefault("quest_cursors", {}).setdefault(str(mid), {})["end"] = idx
+
+# ---- 2026-11-08: 挑战赛战斗快照同步 (换女孩/换衣服后技能不再残留抓包旧值) ----
+# 病根: quest/start、round/start、skip 的 girl_list 全是抓包账号(女孩11/13)的静态快照。
+#   旧代码只改 girl_mid 与泳装 item_mid, equipment_list[*].skill_list / ywrk_skill_list /
+#   rally_list[*].active_skill_list 仍是旧账号的技能 → 比赛里释放的还是原先的技能。
+# 数据源(真实主数据 + 抓包, 非推测):
+#   1) Equipment_Parameter.csv 的 col96/97/98 = 该装备自带的 3 个技能槽 (112 件抓包装备
+#      中 71 件完全相等、31 件部分命中); skill.csv col2 = 全部合法 skill_mid(1..898)。
+#   2) SERVER_DB 抓包战斗响应里的 equipment_list 完整对象(含 level/数值/skill_list),
+#      112 件, 命中时直接复用, 100% 精确。
+#   3) STATE.girl_equipment 里玩家当前穿戴的 *_item_mid (POST /v1/girl/{mid}/private 落库)。
+_BATTLE_SLOT_FIELDS = {
+    1: "swimsuit_item_mid",
+    2: "accessory_head_item_mid",
+    3: "accessory_face_item_mid",
+    4: "accessory_arm_item_mid",
+}
+# 封印(seal)技能没有佩戴数据源 (fes_deck 的 main/sub seal_id 恒为 0), 抓包里
+# team0 的 seal_skill_list 是别的账号的封印。默认把它们转成当前装备的普通技能,
+# 避免"换了衣服仍释放旧封印技能"; 若客户端出现异常可置 False 回退。
+_BATTLE_SYNC_SEAL = True
+_BATTLE_DATA = None
+
+
+def _battle_data():
+    """惰性加载技能主数据 + 抓包战斗装备模板 (只在首次进入挑战赛时构建一次)"""
+    global _BATTLE_DATA
+    if _BATTLE_DATA is not None:
+        return _BATTLE_DATA
+    import csv as _csv
+    skills, valid, templates = {}, set(), {}
+    _dir = os.path.join(TOOL, "csv_master")
+    try:
+        with open(os.path.join(_dir, "skill.csv"), encoding="utf-8-sig", errors="replace") as f:
+            for row in _csv.reader(f):
+                if len(row) > 2 and row[2].isdigit():
+                    valid.add(int(row[2]))
+    except OSError:
+        pass
+    try:
+        with open(os.path.join(_dir, "Equipment_Parameter.csv"), encoding="utf-8-sig", errors="replace") as f:
+            for row in _csv.reader(f):
+                if len(row) <= 98 or not row[0].isdigit():
+                    continue
+                s = []
+                for i in (96, 97, 98):
+                    v = int(row[i]) if row[i].isdigit() else 0
+                    if v and v in valid and v not in s:
+                        s.append(v)
+                if s:
+                    skills[int(row[0])] = s
+    except OSError:
+        pass
+
+    def _collect(o):
+        if isinstance(o, dict):
+            for _key in ("equipment_list", "item_equipment_list"):
+                el = o.get(_key)
+                if isinstance(el, list):
+                    for e in el:
+                        if (isinstance(e, dict) and e.get("item_mid")
+                                and isinstance(e.get("skill_list"), list) and e["skill_list"]):
+                            templates.setdefault(e["item_mid"], e)
+            for v in o.values():
+                _collect(v)
+        elif isinstance(o, list):
+            for v in o:
+                _collect(v)
+
+    for _k in ("/v1/quest/start", "/v1/quest/volley/round/start", "/v1/quest/volley/skip"):
+        for _obj in SERVER_DB.get("endpoints", {}).get(_k, []):
+            _collect(_obj)
+    _BATTLE_DATA = {"skills": skills, "templates": templates, "valid": valid}
+    print(f"[*] 挑战赛战斗快照: 主数据技能 {len(skills)} 件, 抓包模板 {len(templates)} 件, 合法技能 {len(valid)} 个")
+    return _BATTLE_DATA
+
+
+def _current_quest_team():
+    """当前出战队伍: {position: girl_mid}. 由 quest/start 请求写入 STATE, 重启后仍可用.
+
+    没有记录时(玩家还没进过挑战赛)退回抓包的默认队伍, 保证首次进比赛也能同步装备技能。
+    """
+    t = STATE.get("quest_team") or {}
+    if not t:
+        t = (REAL_RESPONSES.get("/v1/quest/latest/team", {}) or {}).get("quest_latest_team", {}) or {}
+    out = {}
+    for pos, key in ((0, "girl_mid_forward"), (1, "girl_mid_back"), (6, "girl_mid_substitute")):
+        v = t.get(key)
+        try:
+            v = int(v)
+        except (TypeError, ValueError):
+            v = 0
+        if v and v > 0 and v in GIRL_MASTER_MAP:
+            out[pos] = v
+    return out
+
+
+def _battle_skill_entry(skill_mid, sample=None):
+    """按抓包 skill_list 条目结构生成一个技能项 (保留 level/潜力字段)"""
+    e = {"skill_mid": skill_mid, "level": 5, "is_potential": False,
+         "potential_level": 1, "polishing_count": 0}
+    if isinstance(sample, dict):
+        for k in ("level", "is_potential", "potential_level", "polishing_count"):
+            if k in sample:
+                e[k] = sample[k]
+    return e
+
+
+def _battle_equipment(slot_type, item_mid, template):
+    """按当前穿戴的 item_mid 重建一件战斗装备(含技能); template 用于补齐客户端要求的字段."""
+    import copy as _cp
+    bd = _battle_data()
+    if item_mid in bd["templates"]:
+        obj = _cp.deepcopy(bd["templates"][item_mid])
+        obj["type"] = slot_type   # 抓包模板的 type 就是槽位 1/2/3/4
+        return obj
+    if not isinstance(template, dict):
+        for _t in bd["templates"].values():
+            if _t.get("type") == slot_type:
+                template = _t
+                break
+    obj = _cp.deepcopy(template) if isinstance(template, dict) else {}
+    obj["type"] = slot_type
+    obj["item_mid"] = item_mid
+    sample = None
+    sl = obj.get("skill_list")
+    if isinstance(sl, list) and sl and isinstance(sl[0], dict):
+        sample = sl[0]
+    ids = bd["skills"].get(item_mid, [])
+    obj["skill_list"] = [_battle_skill_entry(s, sample) for s in ids]
+    return obj
+
+
+def _sync_battle_girls(girl_list, team_map=None):
+    """把 girl_list 里 team0(玩家方) 的女孩/装备/技能同步成当前选择.
+
+    team_map: {position: girl_mid}; 缺省用 STATE.quest_team.
+    只改玩家方, 对手(team1)保持抓包数据不动, 避免破坏比赛结算。
+    """
+    if not isinstance(girl_list, list):
+        return 0
+    if team_map is None:
+        team_map = _current_quest_team()
+    if not team_map:
+        return 0
+    _battle_data()
+    changed = 0
+    for g in girl_list:
+        if not isinstance(g, dict) or g.get("team") != 0:
+            continue
+        pos = g.get("position")
+        nm = team_map.get(pos)
+        if not nm or nm not in GIRL_MASTER_MAP:
+            continue   # 无选择记录 / 65535 之类的哨兵值: 保持抓包, 避免下发非法 girl_mid
+        ge = STATE.get("girl_equipment", {}).get(str(nm), {}) or {}
+        g["girl_mid"] = nm
+        for dst, src in (("hair_mid", "hair_item_mid"),
+                         ("ring_mid", "ring_item_mid"),
+                         ("addition_accessory_mid", "addition_accessory_item_mid")):
+            if dst in g:
+                g[dst] = ge.get(src, 0) or 0
+        el = g.get("equipment_list")
+        if isinstance(el, list):
+            by_type = {}
+            for e in el:
+                if isinstance(e, dict):
+                    by_type.setdefault(e.get("type"), e)
+            new_el = []
+            for slot, field in _BATTLE_SLOT_FIELDS.items():
+                im = ge.get(field) or 0
+                if not im:
+                    continue
+                new_el.append(_battle_equipment(slot, im, by_type.get(slot)))
+            for e in el:
+                if isinstance(e, dict) and e.get("type") not in _BATTLE_SLOT_FIELDS:
+                    new_el.append(e)
+            g["equipment_list"] = new_el
+            # ywrk_skill_list 是旧账号的套装技能, 只保留当前装备技能池里仍存在的
+            pool = set()
+            for e in new_el:
+                for s in e.get("skill_list", []) if isinstance(e.get("skill_list"), list) else []:
+                    if isinstance(s, dict) and s.get("skill_mid"):
+                        pool.add(s["skill_mid"])
+            yl = g.get("ywrk_skill_list")
+            if isinstance(yl, list) and yl:
+                g["ywrk_skill_list"] = [s for s in yl
+                                        if isinstance(s, dict) and s.get("skill_mid") in pool]
+        # 封印技能: 没有佩戴数据, 抓包里是别人账号的封印 → 清空(与卡组 seal_id=0 一致)
+        if _BATTLE_SYNC_SEAL and "seal_skill_list" in g:
+            g["seal_skill_list"] = []
+        changed += 1
+    return changed
+
+
+def _sync_rally_skills(qvr, team_map=None):
+    """把回合 rally_list[*].active_skill_list 里玩家方发动的技能换成当前装备技能.
+
+    只替换玩家方条目的 skill_mid, 保留 delta_point/effect 等结算字段不动,
+    避免结构变化引起客户端解析异常。封印条目(_BATTLE_SYNC_SEAL)转成普通技能条目。
+    """
+    if not isinstance(qvr, dict):
+        return 0
+    if team_map is None:
+        team_map = _current_quest_team()
+    if not team_map:
+        return 0
+    pool_by_pos = {}
+    gl = qvr.get("girl_list") if isinstance(qvr.get("girl_list"), list) else []
+    for g in gl:
+        if not isinstance(g, dict) or g.get("team") != 0:
+            continue
+        ids = []
+        for e in g.get("equipment_list", []) if isinstance(g.get("equipment_list"), list) else []:
+            if isinstance(e, dict):
+                for s in e.get("skill_list", []) if isinstance(e.get("skill_list"), list) else []:
+                    if isinstance(s, dict) and s.get("skill_mid") and s["skill_mid"] not in ids:
+                        ids.append(s["skill_mid"])
+        pool_by_pos[g.get("position")] = ids
+    changed = 0
+    for rally in qvr.get("rally_list", []) if isinstance(qvr.get("rally_list"), list) else []:
+        if not isinstance(rally, dict):
+            continue
+        for a in rally.get("active_skill_list", []) if isinstance(rally.get("active_skill_list"), list) else []:
+            if not isinstance(a, dict) or a.get("team") != 0:
+                continue
+            ids = pool_by_pos.get(a.get("position")) or []
+            if not ids:
+                continue
+            sk = ids[changed % len(ids)]
+            a["skill_mid"] = sk
+            if "effect_skill_mid" in a:
+                a["effect_skill_mid"] = sk
+            if _BATTLE_SYNC_SEAL and a.get("seal_mid"):
+                a["seal_mid"] = 0
+                if "seal_sub_flag" in a:
+                    a["seal_sub_flag"] = 0
+                if "seal_rarity" in a:
+                    a["seal_rarity"] = 0
+            changed += 1
+    return changed
+
 
 # ---- 2026-09-12: 挑战赛动态比赛状态 (替代静态轮换, 解决 round_number 乱序 → -603) ----
 _MATCH_STATE = {}   # {quest_mid, match_point, current_round, acc_pp, acc_op, acc_pa, acc_oa, rounds}
@@ -1430,6 +2850,9 @@ def _gen_round(eps, round_num, acc_pp, acc_op, acc_pa):
     qvr["acc_fever_player_appeal_point"] = 0
     qvr["fever_opponent_appeal_point"] = 0
     qvr["acc_fever_opponent_appeal_point"] = 0
+    # 2026-11-08: 每回合都要按当前队伍/装备重建技能快照, 否则客户端释放抓包账号的旧技能
+    _sync_battle_girls(qvr.get("girl_list"))
+    _sync_rally_skills(qvr)
     return resp
 
 def _build_volley_dynamic(path, eps):
@@ -1664,7 +3087,16 @@ def _build_giftbox(path, req, method="POST"):
                     "updated_at": now_ts,
                     "created_at": mail.get("created_at"),
                 })
-            # else: 特殊物品 (不在 Consume_Parameter, 如装备/泳装) → 两边都不加
+            else:
+                # 2026-09-28: 装备/泳装等特殊物品 (不在 Consume_Parameter) → 加 equipment_inventory
+                _ei = STATE.setdefault("equipment_inventory", [])
+                _max_eid = max((e.get("id", 0) for e in _ei if isinstance(e, dict)), default=0)
+                _ei.append({
+                    "id": _max_eid + 1, "item_mid": item_mid,
+                    "type": ITEM_TYPE_MAP.get(item_mid, 0),
+                    "level": 1, "experience": 0, "girl_mid": 0, "favorite": 0,
+                    "in_lock": 0, "unlock_count": 0, "upgrade_count": 0, "combine_count": 0
+                })
         _save_state()
 
         # 钱包: 返回当前 STATE 钱包 (而非静态模板)
@@ -1706,6 +3138,20 @@ def _apply_state_overlay(path, method=None):
     """状态叠加: /v1/owner /v1/room /v1/girl 注入当前主女孩和装备状态。
     返回响应或 None(不处理)。
     2026-09-13: 增加 method 参数, 让 favorite 等 POST 端点放行给 _build_dynamic 处理"""
+    # ---- 2026-11-08: /v1/photospot 场景全解锁 ----
+    # 原理: photo_spot_list 里"存在 (photo_spot_mid, girl_mid) 条目"= 该女孩在该场景已解锁(可拍)。
+    #   原走 REAL_RESPONSES 静态快照: 只 33 个女孩的部分场景, 且含 girl_mid=34 (客户端 2..33 才有,
+    #   34 是抓包账号的脏数据) → 场景列表一半是灰的, 脏 girl 还可能让客户端查不到对象。
+    # 现改为: 32 个女孩 × 全部合法场景号, created_at 用固定历史时间(不参与判定, 只用于排序显示)。
+    if path == "/v1/photospot" and (method or "GET") == "GET":
+        _psl = []
+        # created_at 只是排序/显示用, 不参与解锁判定。用 2018 年的固定值: 远离 normalize_dates
+        # 的 RECENT_DAYS(2700天) 窗口, 不会被改写成"今天"(否则 704 条全挤在同一天)。
+        _ts_sp = "2018-01-01 00:00:00"
+        for _g in sorted(GIRL_MASTER_MAP):
+            for _sid in _photospot_all_ids():
+                _psl.append({"photo_spot_mid": _sid, "girl_mid": _g, "created_at": _ts_sp})
+        return {"photo_spot_list": _psl}
     # /v1/owner 返回当前主女孩
     if path == "/v1/owner" or path == "/v1/owner/updatelogin":
         # 2026-09-11 修复: 浅拷贝会改原始 REAL_RESPONSES, 改用 deepcopy
@@ -1714,9 +3160,13 @@ def _apply_state_overlay(path, method=None):
         owner = base.get("owner", {})
         if isinstance(owner, dict):
             owner["main_girl_mid"] = STATE.get("main_girl_mid", 3)
+            owner["level"] = 300; owner["license_level"] = 99; owner["license_point"] = 999999
+            owner["checked_license_level"] = 99; owner["stamina"] = 999
         elif isinstance(owner, list):
             for o in owner:
                 o["main_girl_mid"] = STATE.get("main_girl_mid", 3)
+                o["level"] = 300; o["license_level"] = 99; o["license_point"] = 999999
+                o["checked_license_level"] = 99; o["stamina"] = 999
         # owner_list 型 (updatelogin 的真实结构, 实测): 逐个注入 STATE 主女孩
         # 2026-09-10 修复: 此前只处理 owner, 漏 owner_list → 返回原始 main=3 → 客户端进岛回退穗香
         olist = base.get("owner_list")
@@ -1724,11 +3174,12 @@ def _apply_state_overlay(path, method=None):
             for o in olist:
                 if isinstance(o, dict):
                     o["main_girl_mid"] = STATE.get("main_girl_mid", 3)
-        # 2026-09-25: 动态把 last_logged_at 改成"游戏日今天" — 静态 last_logged_at(2026-09-02)
-        # 超过 RECENT_DAYS 窗口时不会被 normalize_dates 刷新→游戏"距上次登录>阈值"走未实现的
-        # 跨日回归分支→卡死。这里强制写今天, 与 normalize_dates 的 today 同源(game_today_str + now),
-        # 下限不再依赖 RECENT_DAYS, 任取值都不卡(只要 < 上限 created_at 年龄~2730天)。
-        _ll_today = game_today_str() + " " + server_now().strftime("%H:%M:%S")
+                    o["level"] = 300; o["license_level"] = 99; o["license_point"] = 999999
+                    o["checked_license_level"] = 99; o["stamina"] = 999
+        # 2026-11-07: last_logged_at 必须是"真实的 UTC 现在" — 客户端按 UTC 解析后算"距上次登录多久".
+        # 旧实现用 game_today_str()(游戏日标签) + 本地时分 -> 北京 15:00 时写出 "D 15:00" = 客户端眼中的
+        # D 23:00 (未来 16 小时) -> 判定未来日期 -> 走未实现的跨日回归分支 -> 卡死。
+        _ll_today = game_now_str()
         if isinstance(owner, dict):
             owner["last_logged_at"] = _ll_today
         elif isinstance(owner, list):
@@ -1833,91 +3284,211 @@ def _apply_state_overlay(path, method=None):
                     _g[_eq_f] = _im2id[_im]
                 elif _g.get(_eq_f):
                     _g[_eq_f] = 0
+        # 2026-11-08 修复: 原实现直接复用抓包静态列表(只有 20 个女孩), 而 /v1/girl 返回 32 个
+        #   → 缺 17/19/20/24/25/27/28/29/30/31/32/33 的装备记录, 进这些女孩的打扮/主页时
+        #     客户端查不到记录(空指针/越界风险)。此处按女孩主数据补齐全量.
+        _have_gm = set()
+        for _g in gel:
+            try:
+                _have_gm.add(int(_g.get("girl_mid", 0)))
+            except (TypeError, ValueError):
+                pass
+        _added_ge = 0
+        for _gm_a in sorted(GIRL_MASTER_MAP.keys()):
+            if _gm_a in _have_gm:
+                continue
+            _entry_a = {"owner_id": OWNER_ID, "girl_mid": _gm_a,
+                        "swimsuit_equipment_item_id": 0,
+                        "accessory_head_equipment_item_id": 0,
+                        "accessory_face_equipment_item_id": 0,
+                        "accessory_arm_equipment_item_id": 0,
+                        "hair_equipment_item_id": 0,
+                        "ring_equipment_item_id": 0,
+                        "created_at": "2019-03-28 11:15:12",
+                        "updated_at": server_now_str()}
+            _sg_a = state_ge.get(str(_gm_a), {})
+            for _eq_f, _girl_f in (("swimsuit_equipment_item_id","swimsuit_item_mid"),
+                                   ("accessory_head_equipment_item_id","accessory_head_item_mid"),
+                                   ("accessory_face_equipment_item_id","accessory_face_item_mid"),
+                                   ("accessory_arm_equipment_item_id","accessory_arm_item_mid"),
+                                   ("hair_equipment_item_id","hair_item_mid"),
+                                   ("ring_equipment_item_id","ring_item_mid")):
+                _im_a = _sg_a.get(_girl_f)
+                if _im_a and _im_a in _im2id:
+                    _entry_a[_eq_f] = _im2id[_im_a]
+            # 没有穿戴记录的女孩 → 用 girl_master 的默认泳装/发型 (避免"光着"或渲染异常)
+            _gmm_a = GIRL_MASTER_MAP.get(_gm_a) or {}
+            if not _entry_a["swimsuit_equipment_item_id"]:
+                _ds = _gmm_a.get("swimsuit")
+                if _ds and _ds in _im2id:
+                    _entry_a["swimsuit_equipment_item_id"] = _im2id[_ds]
+            if not _entry_a["hair_equipment_item_id"]:
+                _dh = _gmm_a.get("hair")
+                if _dh and _dh in _im2id:
+                    _entry_a["hair_equipment_item_id"] = _im2id[_dh]
+            gel.append(_entry_a)
+            _added_ge += 1
+        if _added_ge:
+            print(f"[girl/equipment] 补全缺失女孩记录 {_added_ge} 个 (共 {len(gel)} 个)")
         return base
     # /v1/item/equipment/type/*: 从 STATE 装备库返回 (2026-09-14: 不再合并 REAL_RESPONSES, STATE 是唯一数据源)
     if path.startswith("/v1/item/equipment/type/"):
         _m = re.match(r"^/v1/item/equipment/type/(\d+)$", path)
         _etype = int(_m.group(1)) if _m else 0
+        # 2026-11-08 修复: type/0 不是"全部", 而是 type/11 (发型饰品).
+        #   抓包铁证: /v1/item/equipment/type/0 与 type/11 返回完全相同的 4 件, type 全为 11.
+        #   原代码把 0 当通配符返回全库 22902 件 (含封印69/家具67/道具37/70...) →
+        #   客户端列表巨大(卡顿), 且这些非法类型会被当成可佩戴饰品 → 佩戴后闪退.
+        if _etype == 0:
+            _etype = 11
         _lst = []
         for _e in STATE.get("equipment_inventory", []):
-            if isinstance(_e, dict) and (_etype == 0 or _e.get("type", 0) == _etype):
+            if isinstance(_e, dict) and _e.get("type", 0) == _etype:
                 _lst.append(_e)
         return {"item_equipment_list": _lst}
-    # /v1/fes_deck/equipment_list: 挑战赛卡组装备 (2026-09-14: 从 girl_equipment 构建 deck 格式)
-    # 结构: [{deck_position, swimsuit_equipment_item_id, accessory_head/face/arm_equipment_item_id, main/sub1/sub2_seal_id}]
+    # /v1/furniture/: 家具背包 (2026-09-27: 从 STATE equipment_inventory 聚合 type=67)
+    # 原 REAL_RESPONSES 静态快照仅 11 件, GM 播种的 656 件家具客户端看不到; 现动态聚合全量
+    if path == "/v1/furniture" or path == "/v1/furniture/":
+        _fbl = _furniture_blocklist()   # 2026-11-08: 屏蔽名单里的家具不给客户端 (防"装上就闪退")
+        _fcnt = {}
+        for _e in STATE.get("equipment_inventory", []):
+            if isinstance(_e, dict) and _e.get("type", 0) == 67:
+                _im = _e.get("item_mid", 0)
+                if _im in _fbl:
+                    continue
+                _fcnt[_im] = _fcnt.get(_im, 0) + 1
+        _fl = [{"item_mid": _im, "count": _c} for _im, _c in _fcnt.items()]
+        _fl.sort(key=lambda x: x["item_mid"])
+        return {"item_furniture_list": _fl}
+    # /v1/furniture/myset + myset/home: 家具摆放布局 (2026-09-27: 从STATE读, 持久化用户摆放)
+    # POST /v1/furniture/layout 保存到 STATE["furniture_myset_home"]; 无则走 REAL_RESPONSES 静态兜底
+    if path == "/v1/furniture/myset" or path == "/v1/furniture/myset/home":
+        _layout = STATE.get("furniture_myset_home")
+        if _layout is not None:
+            # 2026-09-27: 过滤 item_mid=0 (取下/清空的家具), 只返回有效布局 (抓包自Steam私服版)
+            # 2026-11-08: 再加三重兜底, 因为带脏 id 的布局条目会让客户端查表拿到 0 → 闪退
+            #   (a) 不在屏蔽名单 (b) 该 item_mid 确有真实实例 (c) 实例 id 能被解析, 摆位在合法区间
+            _valid = _valid_furniture_layout(_layout)
+            if path == "/v1/furniture/myset":
+                return {"furniture_myset_list": _valid}
+            return {"home_furniture_myset_list": _valid}
+        return None  # 不处理, 走 REAL_RESPONSES 静态
+    # /v1/fes_deck/equipment_list: 挑战赛卡组装备 (2026-11-08: 改从 STATE 当前穿戴构建)
+    #   旧 bug: STATE 存的是 *_item_mid, 这里却拿 *_equipment_item_id 去匹配 → 覆盖从不生效,
+    #   返回的永远是抓包账号的静态装备; 且 deck_position=2 是"随便找的第一个非主女孩"。
+    #   客户端若优先读卡组装备, 换装后比赛里就会用回旧装备/旧技能。
     if path == "/v1/fes_deck/equipment_list":
-        _ge = REAL_RESPONSES.get("/v1/girl/equipment", {})
-        _gel = _ge.get("girl_equipment_list", []) if isinstance(_ge, dict) else []
-        _main_girl = STATE.get("main_girl_mid", 3)
-        # STATE 中保存的装备覆盖静态数据 (POST /v1/girl/{mid}/equipment 保存的)
-        _state_ge = STATE.get("girl_equipment", {})
-        # 找主女孩和第二女孩的装备配置
-        _deck = []
-        _positions = [(_main_girl, 1)]
-        for _g in _gel:
-            _gm = _g.get("girl_mid")
-            if _gm and _gm != _main_girl:
-                _positions.append((_gm, 2))
-                break
-        for _gm, _pos in _positions:
-            _eq = {}
-            for _g in _gel:
-                if _g.get("girl_mid") == _gm:
-                    _eq = dict(_g)
+        _im2e_deck = _item_mid_to_instance()
+        _tm_deck = _current_quest_team()
+        _g1 = _tm_deck.get(0) or STATE.get("main_girl_mid", 3)
+        _g2 = _tm_deck.get(1) or 0
+        if not _g2:
+            _gel_deck = (REAL_RESPONSES.get("/v1/girl/equipment", {}) or {}).get("girl_equipment_list", []) or []
+            for _g_deck in _gel_deck:
+                if isinstance(_g_deck, dict) and _g_deck.get("girl_mid") and _g_deck.get("girl_mid") != _g1:
+                    _g2 = _g_deck.get("girl_mid")
                     break
-            # STATE 覆盖: 用 girl_equipment 中保存的装备 ID 覆盖静态值
-            _sg = _state_ge.get(str(_gm), {})
-            if _sg:
-                for _fld in ("swimsuit_equipment_item_id", "accessory_head_equipment_item_id",
-                             "accessory_face_equipment_item_id", "accessory_arm_equipment_item_id",
-                             "hair_equipment_item_id", "ring_equipment_item_id",
-                             "addition_accessory_equipment_item_id"):
-                    if _fld in _sg:
-                        _eq[_fld] = _sg[_fld]
-            _entry = {
-                "deck_position": _pos,
-                "swimsuit_equipment_item_id": _eq.get("swimsuit_equipment_item_id", 0),
-                "accessory_head_equipment_item_id": _eq.get("accessory_head_equipment_item_id", 0),
-                "accessory_face_equipment_item_id": _eq.get("accessory_face_equipment_item_id", 0),
-                "accessory_arm_equipment_item_id": _eq.get("accessory_arm_equipment_item_id", 0),
-                "main_seal_id": 0,
-                "sub1_seal_id": 0,
-                "sub2_seal_id": 0,
-            }
-            _deck.append(_entry)
+        _deck = []
+        for _pos, _gm_deck in ((1, _g1), (2, _g2)):
+            if not _gm_deck:
+                continue
+            _sg_deck = STATE.get("girl_equipment", {}).get(str(_gm_deck), {}) or {}
+            _entry_deck = {"deck_position": _pos}
+            # 只输出真服卡组的 7 个标准字段; hair/ring 无抓包依据, 2026-11-08 已移除
+            for _out_f, _in_f in (("swimsuit_equipment_item_id", "swimsuit_item_mid"),
+                                  ("accessory_head_equipment_item_id", "accessory_head_item_mid"),
+                                  ("accessory_face_equipment_item_id", "accessory_face_item_mid"),
+                                  ("accessory_arm_equipment_item_id", "accessory_arm_item_mid")):
+                _im_deck = _sg_deck.get(_in_f) or 0
+                _inst_deck = _im2e_deck.get(_im_deck) if _im_deck else None
+                _entry_deck[_out_f] = _deck_instance_id(_inst_deck)
+            # 无穿戴记录的女孩用 girl_master 默认泳装兜底
+            if not _entry_deck["swimsuit_equipment_item_id"]:
+                _ds_deck = (GIRL_MASTER_MAP.get(int(_gm_deck)) or {}).get("swimsuit")
+                if _ds_deck:
+                    _entry_deck["swimsuit_equipment_item_id"] = _deck_instance_id(_im2e_deck.get(_ds_deck))
+            _entry_deck.update({"main_seal_id": 0, "sub1_seal_id": 0, "sub2_seal_id": 0})
+            _deck.append(_entry_deck)
         return {"fes_deck_girl_equipment_list": _deck}
     # /v1/pvp_fes_deck/equipment_list_all: PvP 装备 (3 位置: forward/back/sub)
+    #   2026-11-08: 与 fes_deck 同源修正; 旧实现完全只读抓包静态装备, 换装后 PvP 也不生效
     if path == "/v1/pvp_fes_deck/equipment_list_all":
-        _ge2 = REAL_RESPONSES.get("/v1/girl/equipment", {})
-        _gel2 = _ge2.get("girl_equipment_list", []) if isinstance(_ge2, dict) else []
-        _main_girl2 = STATE.get("main_girl_mid", 3)
+        _im2e_pvp = _item_mid_to_instance()
+        _tm_pvp = _current_quest_team()
+        _pvp_girls = [_tm_pvp.get(0) or STATE.get("main_girl_mid", 3)]
+        if _tm_pvp.get(1):
+            _pvp_girls.append(_tm_pvp[1])
+        else:
+            _gel_pvp = (REAL_RESPONSES.get("/v1/girl/equipment", {}) or {}).get("girl_equipment_list", []) or []
+            for _g_pvp in _gel_pvp:
+                if (isinstance(_g_pvp, dict) and _g_pvp.get("girl_mid")
+                        and _g_pvp.get("girl_mid") != _pvp_girls[0]):
+                    _pvp_girls.append(_g_pvp["girl_mid"])
+                    break
         _pvp_deck = []
-        _pvp_positions = [(_main_girl2, 1)]
-        _count = 0
-        for _g in _gel2:
-            _gm = _g.get("girl_mid")
-            if _gm and _gm != _main_girl2:
-                _pvp_positions.append((_gm, _count + 2))
-                _count += 1
-                if _count >= 2:
-                    break
-        for _gm, _pos in _pvp_positions:
-            _eq2 = {}
-            for _g in _gel2:
-                if _g.get("girl_mid") == _gm:
-                    _eq2 = _g
-                    break
-            _pvp_deck.append({
-                "deck_position": _pos,
-                "swimsuit_equipment_item_id": _eq2.get("swimsuit_equipment_item_id", 0),
-                "accessory_head_equipment_item_id": _eq2.get("accessory_head_equipment_item_id", 0),
-                "accessory_face_equipment_item_id": _eq2.get("accessory_face_equipment_item_id", 0),
-                "accessory_arm_equipment_item_id": _eq2.get("accessory_arm_equipment_item_id", 0),
-                "main_seal_id": 0,
-                "sub1_seal_id": 0,
-                "sub2_seal_id": 0,
-            })
+        for _pos_pvp, _gm_pvp in enumerate(_pvp_girls, start=1):
+            _sg_pvp = STATE.get("girl_equipment", {}).get(str(_gm_pvp), {}) or {}
+            _entry_pvp = {"deck_position": _pos_pvp}
+            # 只输出真服卡组的 7 个标准字段; hair/ring 无抓包依据, 2026-11-08 已移除
+            for _out_f, _in_f in (("swimsuit_equipment_item_id", "swimsuit_item_mid"),
+                                  ("accessory_head_equipment_item_id", "accessory_head_item_mid"),
+                                  ("accessory_face_equipment_item_id", "accessory_face_item_mid"),
+                                  ("accessory_arm_equipment_item_id", "accessory_arm_item_mid")):
+                _im_pvp = _sg_pvp.get(_in_f) or 0
+                _inst_pvp = _im2e_pvp.get(_im_pvp) if _im_pvp else None
+                _entry_pvp[_out_f] = _deck_instance_id(_inst_pvp)
+            if not _entry_pvp["swimsuit_equipment_item_id"]:
+                _ds_pvp = (GIRL_MASTER_MAP.get(int(_gm_pvp)) or {}).get("swimsuit")
+                if _ds_pvp:
+                    _entry_pvp["swimsuit_equipment_item_id"] = _deck_instance_id(_im2e_pvp.get(_ds_pvp))
+            _entry_pvp.update({"main_seal_id": 0, "sub1_seal_id": 0, "sub2_seal_id": 0})
+            _pvp_deck.append(_entry_pvp)
         return {"pvp_fes_deck_girl_equipment_full_list": _pvp_deck}
+    # /v1/girl/ring/list: 每个女孩当前佩戴的戒指 (2026-11-07: 从 STATE 构建)
+    #   原来返回抓包账号的静态 30 条(item_mid 全 0) → 你给女孩戴上戒指后, 戒指页仍显示"未佩戴"
+    if path == "/v1/girl/ring/list" and method == "GET":
+        _base_rings = REAL_RESPONSES.get("/v1/girl/ring/list", {}).get("girl_ring_item_mid_list", [])
+        _ring_gms = [g.get("girl_mid") for g in _base_rings if isinstance(g, dict) and g.get("girl_mid")]
+        if not _ring_gms:
+            _ring_gms = sorted(GIRL_MASTER_MAP)
+        _ge_all = STATE.get("girl_equipment", {})
+        _rings = []
+        for _rgm in _ring_gms:
+            _rsg = _ge_all.get(str(_rgm), {}) or {}
+            _rings.append({"girl_mid": int(_rgm), "item_mid": int(_rsg.get("ring_item_mid") or 0)})
+        return {"girl_ring_item_mid_list": _rings}
+    # /v1/girl/{mid}/head/accessory/switch/{item_mid}: 头饰显示开关
+    #   2026-11-07: 原来落兜底 {"status":"success"}, 真实响应是 head_accessary_switch_list
+    #   → 客户端读不到字段, 头饰"戴/摘"图标点了不变
+    _m_hsw = re.match(r"^/v1/girl/(\d+)/head/accessory/switch/(\d+)$", path)
+    if _m_hsw:
+        _hgm = int(_m_hsw.group(1))
+        _hmid = int(_m_hsw.group(2))
+        _hsw = STATE.setdefault("head_accessory_switch", {})
+        _hkey = f"{_hgm}:{_hmid}"
+        _hcur = _hsw.get(_hkey)
+        if method == "POST":
+            _hflag = not bool(_hcur.get("switch", True)) if isinstance(_hcur, dict) else False
+            _hsw[_hkey] = {"switch": _hflag, "at": server_now_str()}
+            _save_state()
+        else:
+            _hflag = bool(_hcur.get("switch", True)) if isinstance(_hcur, dict) else True
+        return {"head_accessary_switch_list": [{
+            "girl_mid": _hgm, "switch": _hflag,
+            "created_at": (_hcur.get("at") if isinstance(_hcur, dict) else server_now_str())}]}
+    if path == "/v1/girl/head/accessory/switch/list" and method == "GET":
+        _hsw_all = STATE.get("head_accessory_switch", {})
+        _hlist = []
+        for _hk, _hv in _hsw_all.items():
+            if not isinstance(_hv, dict):
+                continue
+            try:
+                _hgm2 = int(str(_hk).split(":")[0])
+            except (ValueError, IndexError):
+                continue
+            _hlist.append({"girl_mid": _hgm2, "switch": bool(_hv.get("switch", True)),
+                           "created_at": _hv.get("at") or ""})
+        return {"head_accessary_switch_list": _hlist}
     # /v1/girl/private: 私人套装物品列表 (2026-09-14: 从 STATE 返回, 不再合并 REAL_RESPONSES)
     if path == "/v1/girl/private":
         _pi_lst = [dict(_p) for _p in STATE.get("private_items", [])]
@@ -1930,6 +3501,37 @@ def _apply_state_overlay(path, method=None):
         _fav_type = int(_m_fav.group(1))
         _m_fav_girl = re.match(r"^/v1/girl/(\d+)/private/favorite/", path)
         _fav_gm = int(_m_fav_girl.group(1)) if _m_fav_girl else 0
+        # ---- 2026-11-08 14:30: 姿势卡(37)/表情卡(81) 的 favorite = 纯星标, 必须持久化 ----
+        #   用户实证(14:26 日志): 连点 6 次 POST /v1/girl/3/private/favorite/37 取消星标, 重启后又变回星标。
+        #   两个 bug: ① 上一版把 37/81 直接返回"全集"→ 客户端认为每张卡都已被星标, 取消也白取消;
+        #             ② POST 只写 equipment_inventory(里面根本没有 type37/81 的实例) → 取消从未落库。
+        #   现在: 星标存 STATE["pose_expr_favorite"]={"girl:type": [mids]}, GET 只回真正标记过的。
+        # ---- 2026-11-08 15:10: 姿势(37)/表情(81) —— 这里才是真正的"可用列表" ----
+        # 【为什么不是 private_item_list】实测: 客户端兑换 555 张后, 服务器已把
+        #   {girl_mid,item_mid} 全部写进 private_item_list 并在响应里回给它, 但姿势菜单依旧全空。
+        #   而上一版把 37/81 在这里返回全集时, girl 3 的姿势菜单立刻显示出一大堆(用户原话:
+        #   "你把所有女孩的姿势都加给了这一个女孩") —— 说明菜单读的就是这个端点。
+        #   (真服样本 favorite/37 是空的, 因为那个测试账号确实一张姿势卡都没买过, 不是反证。)
+        # 【内容】= 映射表里属于这个女孩的卡 ∪ 用户额外加过的 - 用户删掉的。
+        #   带 girl 的 /v1/girl/{id}/private/favorite/37 → 只回该女孩(约 40 条)
+        #   不带 girl 的 /v1/girl/private/favorite/37      → 回全部(3239 条 / 约 250KB, 安全)
+        if _fav_type in (37, 81):
+            _pe_add = STATE.get("pose_expr_favorite", {})
+            _pe_del = STATE.get("pose_expr_removed", {})
+            _pe_out = []
+            _pe_girls = [_fav_gm] if _fav_gm else sorted(GIRL_MASTER_MAP)
+            _pe_map = _pose_owner_map_cached()
+            _pe_uni = _pose_universal_items() if _fav_type == 37 else set()
+            for _pe_g in _pe_girls:
+                # v4: 映射是多对多 (item -> {girls}); 通用卡人人都有
+                _pe_set = {_m for _m, _gs in _pe_map.items()
+                           if _pe_g in _gs and EQUIP_TYPE_MAP.get(_m) == _fav_type}
+                _pe_set |= {int(_x) for _x in _pe_add.get(f"{_pe_g}:{_fav_type}", [])}
+                _pe_set -= {int(_x) for _x in _pe_del.get(f"{_pe_g}:{_fav_type}", [])}
+                for _pe_m in sorted(_pe_set):
+                    _pe_out.append({"girl_mid": _pe_g, "type": _fav_type, "item_mid": _pe_m})
+            _pose_trace(_fav_gm, _fav_type, len(_pe_out))
+            return {"favorite_private_item_list": _pe_out}
         _type_map = {1: 1, 22: 22, 23: 23, 24: 24}
         _eq_type = _type_map.get(_fav_type)
         _fav_lst = []
@@ -1954,25 +3556,70 @@ _LAST_BROWSE_GIRL = None
 #   返回 (iel, otl, icl, pcl, pil, spl_entry) 或 None(未知商品)
 #   iel=item_equipment_list, otl=order_ticket_list, icl=item_consume_list,
 #   pcl=pose_card_item_list, pil=private_item_list, spl_entry=shop_purchase_list条目
+def _alloc_equip_ids(n):
+    """分配 n 个全局唯一的装备实例 id。
+
+    2026-11-07 修复: 旧实现 _base_id = (毫秒时间戳 % 1e9) + 4e9, 同一毫秒内的多次购买
+    (bulk_exchange 一次买多件时必然发生) 会算出相同 _base_id, 内层 _i 又从 0 开始
+    → 多个实例共用同一个 id。客户端把 id 当主键, 同 id 会被当成同一件:
+    换装换错人、强化加到别件、分解串台, 严重时归属冲突崩溃 0x2CE79C9。
+    改为按衣橱现有最大 id 递增, 天然唯一。
+    """
+    if n <= 0:
+        return []
+    cur = 0
+    for _e in (STATE.get("equipment_inventory") or []):
+        if isinstance(_e, dict):
+            try:
+                cur = max(cur, int(_e.get("id") or 0))
+            except (TypeError, ValueError):
+                pass
+    cur = max(cur, 4200000000)
+    return list(range(cur + 1, cur + 1 + n))
+
+
 def _process_shop_exchange(pmid, count, mgm, inv, spi, pi_keys, ic):
     _details = SHOP_DETAIL_MAP.get(pmid, [])
     if not _details:
         return None
     _iel, _otl, _icl, _pcl, _pil = [], [], [], [], []
-    _base_id = (int(datetime.datetime.now().timestamp() * 1000) % 1000000000) + 4000000000
+    _ids = _alloc_equip_ids(len(_details))
     for _i, (_did, _cnt) in enumerate(_details):
         _etype = EQUIP_TYPE_MAP.get(_did, 1)
         _real_cnt = int(_cnt) * int(count)
+        if _etype == 67:
+            # ===== 2026-11-08: 家具单独分支 =====
+            # 岛主房间的家具来自 /v1/furniture/ (从 equipment_inventory 聚合 type=67)。
+            # 旧逻辑把家具当消耗品写 item_counts → 家具库里永远不出现 → "房间道具没解锁"。
+            # 家具也不该进 private_items(那是女孩专属泳装) 和 order_ticket, 所以单列一支。
+            # 同款家具允许多件(摆多把椅子), 上限 20 防止刷爆。
+            _eid = _ids[_i]
+            _ie = {"id": _eid, "item_mid": _did, "type": 67, "level": 1, "experience": 0,
+                   "girl_mid": 0, "favorite": 0, "in_lock": 0, "unlock_count": 0,
+                   "upgrade_count": 0, "combine_count": 0}
+            _iel.append(_ie)
+            _inv_n = sum(1 for _e2 in inv if isinstance(_e2, dict) and _e2.get("item_mid") == _did)
+            _need = max(0, min(max(1, _real_cnt), 20 - _inv_n))
+            if _need:
+                if _inv_n == 0:
+                    inv.append(dict(_ie))          # 第一件用本请求已分配的 id
+                    _need -= 1
+                for _nid in _alloc_equip_ids(_need):
+                    _e_new = dict(_ie)
+                    _e_new["id"] = _nid
+                    inv.append(_e_new)
+            continue
         if _etype in (0, 1, 11, 22, 23, 24, 56, 82):
             # 装备类: 入装备库(去重) + private_item + order_ticket
-            _eid = _base_id + _i
+            _eid = _ids[_i]
             _ie = {"id": _eid, "item_mid": _did, "type": _etype, "level": 1, "experience": 0,
                    "girl_mid": 0, "favorite": 0, "in_lock": 1, "unlock_count": 0,
                    "upgrade_count": 0, "combine_count": 0}
             _iel.append(_ie)
-            # 2026-09-15 去重: 同 item_mid 的装备实例只保留一份 (避免重复播种/重复购买导致归属冲突崩溃 0x2CE79C9)
-            _inv_has = any(isinstance(_e2, dict) and _e2.get("item_mid") == _did for _e2 in inv)
-            if not _inv_has:
+            # 2026-11-07 修复: 旧逻辑同 item_mid 只保留 1 份, 但响应照旧声称发货 → 重登后物品消失(假发货)
+            #   改为同款最多 3 个实例(各自唯一 id), 与真实服"同款泳装可以有多件"一致
+            _inv_n = sum(1 for _e2 in inv if isinstance(_e2, dict) and _e2.get("item_mid") == _did)
+            if _inv_n < 3:
                 inv.append(dict(_ie))
             # STATE: 给当前浏览女孩
             if (mgm, _did) not in pi_keys:
@@ -1983,7 +3630,8 @@ def _process_shop_exchange(pmid, count, mgm, inv, spi, pi_keys, ic):
                          "created_at": server_now_str()})
         else:
             # 消耗品类: 入 item_counts + item_consume_list (+pose_card for type37)
-            ic[str(_did)] = ic.get(str(_did), 0) + _real_cnt
+            # 2026-11-07 修复: 旧代码写 str 键, 与其它路径的 int 键并存 → 同一件物品两条记录/数量被拆开
+            ic[_did] = ic.get(_did, 0) + _real_cnt
             _now_c = server_now_str()
             _icl.append({"item_mid": _did, "count": _real_cnt, "type": _etype,
                          "updated_at": None, "created_at": _now_c})
@@ -2161,13 +3809,15 @@ def _build_room_request(path, req, method="POST"):
         if not found:
             found = {"girl_mid": gm1, "friendly_girl_mid": gm2, "value": 0, "level": 1, "unlock_count": 0}; fv.append(found)
         fb = found["value"]; found["value"] = fb + 25
-        lvl_gain = 1 if found["value"] >= 100 else 0; found["level"] = found.get("level", 1) + lvl_gain
+        # 2026-11-08: friendly 已拉满(FRIENDLY_MAX_LEVEL)的组合不再涨级, 防止 level 无限增长
+        lvl_gain = 1 if (found["value"] >= 100 and found.get("level", 1) < FRIENDLY_MAX_LEVEL) else 0
+        found["level"] = found.get("level", 1) + lvl_gain
         _save_state()
         return {"wallet": STATE.get("wallet", {}), "item_equipment_list": [], "item_consume_list": [],
                 "custom_room_request_list": [],
                 "custom_room_request_result": {"clear_rank": clear_rank, "trend_status": 0,
                     "friendly_progress": {"friendly_gain": 25, "friendly_before": fb, "friendly_after": fb + 25,
-                        "level_gain": lvl_gain, "level_before": 1, "level_after": 1},
+                        "level_gain": lvl_gain, "level_before": found["level"] - lvl_gain, "level_after": found["level"]},
                     "friendly_levelup_reward_list": [], "trend_reward": {"friendly_value": 0, "item_list": []},
                     "clear_rank_count_list": [{"clear_rank": clear_rank, "count": 1}], "clear_rank_reward_item_list": []},
                 "custom_room_request_reward_list": [], "sp_fan_item_list": [], "sp_timestop_item_list": [],
@@ -2182,9 +3832,70 @@ def _build_room_request(path, req, method="POST"):
     return None
 
 def _build_special_order_exchange(path, req, method="POST"):
-    """特殊订单兑换(送泳装进私人套装): 请求{is_checked_at}, item_mid=3574固定(capture 5次确认), girl=main_girl, 扣兑换券(初始7)+进private_items"""
+    """特殊订单兑换: 泳装(3574) 或 姿势卡(order_item_type=37)。
+    2026-11-08 14:45: 补上姿势卡分支。
+      实证(full_server.log 14:37:21): 客户端兑换姿势卡时发
+        {"girl_mid":21, "is_present":true, "item_mid_list":[56404], "order_item_type":37}
+      → 说明姿势卡是 **per-girl** 兑换的, 目标女孩在请求里。旧实现只认 3574(泳装),
+        姿势卡请求被当成泳装兑换, 扣券且把 3574 塞进 private_items —— 什么都没发对。
+      现在: 按 girl_mid + item_mid_list 精确入账该女孩的 private_items。
+    """
     if path != "/v1/special_order/exchange" or method != "POST":
         return None
+    # ---- 分支①: 姿势卡 / 表情卡 (order_item_type=37) ----
+    if int(req.get("order_item_type") or 0) == 37:
+        try:
+            _gm = int(req.get("girl_mid") or STATE.get("main_girl_mid", 3))
+        except (TypeError, ValueError):
+            _gm = STATE.get("main_girl_mid", 3)
+        _mids = []
+        for _m in (req.get("item_mid_list") or []):
+            try:
+                _mids.append(int(_m))
+            except (TypeError, ValueError):
+                continue
+        _spi = STATE.setdefault("private_items", [])
+        _have = set()
+        for _p in _spi:
+            if isinstance(_p, dict):
+                try:
+                    _have.add((int(_p.get("girl_mid")), int(_p.get("item_mid"))))
+                except (TypeError, ValueError):
+                    continue
+        _new = []
+        for _m in _mids:
+            if (_gm, _m) in _have:
+                continue
+            _spi.append({"girl_mid": _gm, "item_mid": _m})
+            _have.add((_gm, _m))
+            _new.append(_m)
+        _save_state()
+        _now_o = server_now_str()
+        # 兑换成功的卡同时记进"拥有"白名单: 映射表没覆盖到的卡(184 张姿势/318 张表情)
+        # 只能靠用户自己兑一次才拿得到, 记下来下次 GET favorite/37 就能回给它。
+        _pe_add = STATE.setdefault("pose_expr_favorite", {})
+        _pe_del = STATE.setdefault("pose_expr_removed", {})
+        for _m in _mids:
+            _tt = EQUIP_TYPE_MAP.get(_m)
+            if _tt not in (37, 81):
+                _tt = 37
+            _k = f"{_gm}:{_tt}"
+            _add = set(int(x) for x in _pe_add.get(_k, []))
+            _del = set(int(x) for x in _pe_del.get(_k, []))
+            _add.add(_m)
+            _del.discard(_m)
+            _pe_add[_k] = sorted(_add)
+            _pe_del[_k] = sorted(_del)
+        _save_state()
+        print(f"[special_order/exchange] 姿势卡 girl={_gm} 请求 {_mids} 新增 {_new}")
+        return {
+            "pose_card_item_list": [{"item_mid": _m, "count": 1, "type": 37,
+                                     "updated_at": None, "created_at": _now_o} for _m in _mids],
+            "private_item_list": [{"girl_mid": _gm, "item_mid": _m} for _m in _mids],
+            "order_ticket_exchange_list": [],
+            "order_ticket_list": [],
+        }
+    # ---- 分支②: 兑换券换泳装 (固定 3574) ----
     gm = STATE.get("main_girl_mid", 3)
     ITEM_MID = 3574  # 兑换券=泳装 (capture 5次 special_order/exchange 确认固定 3574, type29)
     ic = STATE.get("item_counts", {})
@@ -2221,6 +3932,70 @@ def _build_dynamic(path, req, method="POST"):
     if _m_track:
         _LAST_BROWSE_GIRL = int(_m_track.group(1))
 
+    # ---- 2026-09-27: 家具摆放持久化 (/v1/furniture/layout/{set_no}) ----
+    # 客户端 POST update_furniture_list 保存布局; 原走兜底{status:success}没存STATE→重登丢失
+    # 2026-11-08 重写: 原实现给 id=0 的条目分配"库存最大 id+1", 而库存最大 id 已是 45 亿级的
+    #   泳装实例 id → 造出 4528388208 这类**不存在的家具实例 id**, 客户端按它查表得到 0 →
+    #   sub_142DA2F40 解引用空指针 → 0xc0000005 闪退("装上家具就卡住闪退"的根因)。
+    #   现在改为: 只认本人真实持有的 type67 实例 id; id 缺失/伪造则分配该家具的空闲实例;
+    #   屏蔽名单/未持有/非法摆位/撞位 的条目直接丢弃并记入隔离区。
+    if path.startswith("/v1/furniture/layout/") and method == "POST":
+        _ufl = req.get("update_furniture_list", []) if isinstance(req, dict) else []
+        _fbl = _furniture_blocklist()
+        _finst = _furniture_instances()
+        _slots_used, _ids_used = set(), set()
+        _clean, _quar = [], []
+        for _it in _ufl:
+            if not isinstance(_it, dict):
+                continue
+            try:
+                _mid = int(_it.get("item_mid") or 0)
+                _lm = int(_it.get("layout_mid") or 0)
+                _ry = int(_it.get("rot_y") or 0)
+                _oid = int(_it.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            # item_mid=0 = 客户端"取下该位家具", 原样回显但不必落库
+            if _mid == 0:
+                _clean.append({"id": _oid, "item_mid": 0, "layout_mid": _lm, "rot_y": _ry})
+                continue
+            _why = None
+            if _mid in _fbl:
+                _why = "blocked"
+            elif EQUIP_TYPE_MAP.get(_mid) != 67:
+                _why = "not_furniture"
+            elif not _finst.get(_mid):
+                _why = "not_owned"
+            elif not (0 <= _lm < MAX_LAYOUT_SLOT):
+                _why = "layout_out_of_range"
+            elif _lm in _slots_used:
+                _why = "duplicate_slot"
+            if _why:
+                _quar.append({"id": _oid, "item_mid": _mid, "layout_mid": _lm, "reason": _why})
+                continue
+            _free = [i for i in _finst[_mid] if i not in _ids_used]
+            if not _free:
+                _quar.append({"id": _oid, "item_mid": _mid, "layout_mid": _lm,
+                              "reason": "no_free_instance"})
+                continue
+            _nid = _oid if _oid in _free else _free[0]
+            _ids_used.add(_nid)
+            _slots_used.add(_lm)
+            _clean.append({"id": _nid, "item_mid": _mid, "layout_mid": _lm, "rot_y": _ry})
+        STATE["furniture_myset_home"] = [x for x in _clean if x.get("item_mid")]
+        _save_state()
+        # 2026-09-27: 真实响应格式(抓包自Steam私服版): owner_room + furniture_myset_list(含全部, item_mid=0为取下)
+        # 原{"status":"success"}客户端不认→布局没保存到客户端→"无效"
+        _or = STATE.get("owner_room") or {"owner_id": OWNER_ID, "main_girl_mid": STATE.get("main_girl_mid", 3), "sub_girl_mid": 15, "set_no": 0}
+        log_write(f"  [FURNITURE] 布局保存 {len(_clean)} 件 (丢弃 {len(_quar)})\n")
+        for _q in _quar:
+            log_write(f"    丢弃 item_mid={_q['item_mid']} layout={_q['layout_mid']} 原因={_q['reason']}\n")
+        if _quar:
+            _qlog = list(STATE.get("furniture_quarantine") or []) + _quar
+            STATE["furniture_quarantine"] = _qlog[-100:]
+            _save_state()
+        return {"owner_room": dict(_or), "furniture_myset_list": _clean}
+
     # ---- 2026-09-14: bar/bell 酒吧摇铃 (消耗item_mid×count, 更新库存/bell_at/wallet; 奖励用模板) ----
     if path == "/v1/bar/bell" and method == "POST":
         _pool = eps.get(path, [])
@@ -2230,11 +4005,10 @@ def _build_dynamic(path, req, method="POST"):
         _count = req.get("count", 1)
         _im = req.get("item_mid")
         if _im is not None:
-            _ic = STATE.setdefault("item_counts", {})
-            _ic[_im] = max(0, _ic.get(_im, 0) - _count)
+            _, _left_bb = ic_take(_im, _count)
             for _ic_l in _r.get("item_consume_list", []):
                 if _ic_l.get("item_mid") == _im:
-                    _ic_l["count"] = _ic[_im]
+                    _ic_l["count"] = _left_bb
                     _ic_l["updated_at"] = server_now_str()
         _w = STATE.get("wallet", {})
         for _wl in _r.get("wallet_list", []):
@@ -2246,6 +4020,14 @@ def _build_dynamic(path, req, method="POST"):
                 _bs["bell_at"] = _now
         _save_state()
         return _r
+
+    # ---- 2026-11-07 商店修复 ②: 购买前校验 POST /v1/shop/purchase/check ----
+    #   原实现缺失 → 落兜底 {"status":"success"} → 客户端拿不到 purchase_check 字段
+    #   → 购买确认流程异常(点了没反应/判定失败)。
+    #   响应结构来自抓包库 9 份样本, 恒为 {"purchase_check":{"purchase":true,"total_price":0}}
+    if path == "/v1/shop/purchase/check" and method == "POST":
+        print(f"[shop/purchase/check] {req}")
+        return {"purchase_check": {"purchase": True, "total_price": 0}}
 
     # ---- 2026-09-15: 维纳斯商店批量购买 POST /v1/shop/bulk_exchange ----
     #   请求体: {"bulk_exchange_list":[{"count":1,"product_mid":33353},{"count":1,"product_mid":43144}]}
@@ -2262,11 +4044,18 @@ def _build_dynamic(path, req, method="POST"):
         _iel_all, _otl_all, _icl_all, _pcl_all, _pil_all, _spl_all = [], [], [], [], [], []
         for _item in _bulk_list:
             _pmid = int(_item.get("product_mid", 0))
-            _cnt = int(_item.get("count", 1))
+            # 2026-11-07: count 缺省/为 0 时兜底 1 —— 原来 int(_item.get("count", 1)) 若客户端发 0,
+            #   会真的按 0 件发货, 响应里 count 全是 0, 表现就是"购买成功但数量 0"
+            try:
+                _cnt = int(_item.get("count", 1) or 1)
+            except (TypeError, ValueError):
+                _cnt = 1
+            _cnt = max(1, _cnt)
             if not _pmid:
                 continue
             _result = _process_shop_exchange(_pmid, _cnt, _mgm, _inv, _spi, _pi_keys, _ic)
             if _result is None:
+                print(f"[!] shop/bulk_exchange 未知商品 product_mid={_pmid} 已跳过")
                 continue
             _iel, _otl, _icl, _pcl, _pil, _spl_entry = _result
             _iel_all.extend(_iel)
@@ -2276,7 +4065,10 @@ def _build_dynamic(path, req, method="POST"):
             _pil_all.extend(_pil)
             _spl_all.append(_spl_entry)
             _sp[str(_pmid)] = _sp.get(str(_pmid), 0) + 1
+            STATE.setdefault("shop_purchased_at", {})[str(_pmid)] = server_now_str()
         _save_state()
+        print(f"[shop/bulk_exchange] req={req} -> 装备{len(_iel_all)}件 消耗品{len(_icl_all)}条 "
+              f"{[(e.get('item_mid'), e.get('count')) for e in _icl_all][:8]}")
         _w = STATE.get("wallet", {})
         _resp = {
             "shop_purchase_list": _spl_all,
@@ -2307,10 +4099,18 @@ def _build_dynamic(path, req, method="POST"):
         _mgm = _LAST_BROWSE_GIRL or STATE.get("main_girl_mid", 3)
         _result = _process_shop_exchange(_pmid, 1, _mgm, _inv, _spi, _pi_keys, _ic)
         if _result is None:
+            # 2026-11-07: 加日志 (商品不在 ShopItemDetail.csv 里 → 无法判断该发什么, 走兜底假成功)
+            print(f"[!] shop/exchange 未知商品 product_mid={_pmid} (ShopItemDetail 无映射)")
             return None  # 未知商品交给上层
         _iel, _otl, _icl, _pcl, _pil, _spl_entry = _result
         _sp[str(_pmid)] = _sp.get(str(_pmid), 0) + 1
+        STATE.setdefault("shop_purchased_at", {})[str(_pmid)] = server_now_str()
         _save_state()
+        # 2026-11-07 诊断: 购买发货明细打日志, 方便对"买完数量0"这类问题定位
+        print(f"[shop/exchange] product_mid={_pmid} req={req} "
+              f"| 装备{len(_iel)}件 {[(e.get('item_mid'), e.get('type')) for e in _iel]} "
+              f"| 消耗品{len(_icl)}条 {[(e.get('item_mid'), e.get('count')) for e in _icl]} "
+              f"| 姿势卡{len(_pcl)}条 {[(e.get('item_mid'), e.get('count')) for e in _pcl]}")
         _w = STATE.get("wallet", {})
         _resp = {
             "shop_purchase_list": [_spl_entry],
@@ -2354,6 +4154,9 @@ def _build_dynamic(path, req, method="POST"):
     m_eq = re.match(r"^/v1/girl/(\d+)/equipment$", path)
     if m_eq:
         gm = m_eq.group(1)
+        # 2026-11-07 修复: GET 直接返回落库的真实装备(实例ID + 实例详情), 不再回显空请求体
+        if method == "GET":
+            return _build_girl_equipment_one(int(gm))
         # 请求里的装备字段 (item_id 型)
         eq_map = {
             "swimsuit_equipment_item_id": req.get("swimsuit_equipment_item_id", 0),
@@ -2382,6 +4185,8 @@ def _build_dynamic(path, req, method="POST"):
                     _eq.pop(_mid_field, None)
                     _eq.pop(_k, None)
             _save_state()
+            # 保存后回真实落库结果 (客户端据此刷新, 回显请求值会在"卸下装备"时给出脏数据)
+            return _build_girl_equipment_one(int(gm))
         return {"girl_equipment_list": [dict({"owner_id": OWNER_ID, "girl_mid": int(gm)}, **eq_map)]}
 
     # ---- 换装实际请求: POST /v1/girl/{mid}/private (实测: 客户端换装走此路径, 带 item_mid 型字段) ----
@@ -2470,6 +4275,39 @@ def _build_dynamic(path, req, method="POST"):
     if m_fav_post and method == "POST":
         _fp_gm = int(m_fav_post.group(1))
         _fp_type = int(m_fav_post.group(2))
+        # 2026-11-08 14:30: type37(姿势卡)/81(表情卡) 的星标单独存 STATE["pose_expr_favorite"]
+        #   (equipment_inventory 里没有这两类的实例, 旧代码对它们完全空转 → 取消星标重启即复原)
+        if _fp_type in (37, 81):
+            # GET 现在回"拥有的卡"(映射表), 所以取消星标必须记进 removed 黑名单才能真的消失,
+            # 否则下次 GET 又把它从映射里取回来 —— 这正是用户之前"取消后重启又复原"的根因。
+            _pe_add = STATE.setdefault("pose_expr_favorite", {})
+            _pe_del = STATE.setdefault("pose_expr_removed", {})
+            _pek = f"{_fp_gm}:{_fp_type}"
+            _add_set = set(int(x) for x in _pe_add.get(_pek, []))
+            _del_set = set(int(x) for x in _pe_del.get(_pek, []))
+            for _it in (req.get("item_list") or []):
+                _fp_im = _it.get("item_mid")
+                if _fp_im is None:
+                    continue
+                _fp_im = int(_fp_im)
+                if _it.get("is_favorite", 0):
+                    _add_set.add(_fp_im)
+                    _del_set.discard(_fp_im)
+                else:
+                    _add_set.discard(_fp_im)
+                    _del_set.add(_fp_im)
+            _pe_add[_pek] = sorted(_add_set)
+            _pe_del[_pek] = sorted(_del_set)
+            _save_state()
+            print(f"[favorite] girl={_fp_gm} type={_fp_type} 额外加 {len(_add_set)} 张, 移除 {len(_del_set)} 张")
+            _fp_map = _pose_owner_map_cached()
+            _fp_uni = _pose_universal_items() if _fp_type == 37 else set()
+            _fp_set = {_m for _m, _gs in _fp_map.items()
+                       if _fp_gm in _gs and EQUIP_TYPE_MAP.get(_m) == _fp_type}
+            _fp_set |= _fp_uni
+            _fp_set = (_fp_set | _add_set) - _del_set
+            return {"favorite_private_item_list": [
+                {"girl_mid": _fp_gm, "type": _fp_type, "item_mid": _m} for _m in sorted(_fp_set)]}
         _fp_type_map = {1: 1, 22: 22, 23: 23, 24: 24}
         _fp_eq_type = _fp_type_map.get(_fp_type)
         for _it in (req.get("item_list") or []):
@@ -2615,10 +4453,8 @@ def _build_dynamic(path, req, method="POST"):
             _consume_im = _cfg["consume_item_mid"] if _cfg else 0
             if _consume_im:
                 # 用抽卡券: 扣 dc 张
-                _ic = STATE.setdefault("item_counts", {})
-                _cur = _ic.get(_consume_im, 0)
-                _ic[_consume_im] = max(0, _cur - dc)
-                print(f"[gacha/draw] gacha_mid={_gm} 扣券 item_mid={_consume_im} -{dc} (剩 {_ic[_consume_im]})")
+                _cur, _left_tk = ic_take(_consume_im, dc)
+                print(f"[gacha/draw] gacha_mid={_gm} 扣券 item_mid={_consume_im} -{dc} (剩 {_left_tk})")
             else:
                 # 用 vstone: 优先 stepup price, 否则默认 单抽3000/十连27000(九折)
                 _price = _cfg["price"] if _cfg and _cfg.get("price") else 3000
@@ -2681,8 +4517,8 @@ def _build_dynamic(path, req, method="POST"):
                     # 消耗品: 主数据(Equipment_Parameter)无此 item_mid 的装备类型映射 → 进 item_consume_list
                     # 2026-09-13 修复: 旧逻辑 `>=35000` 阈值把真泳装(如57434/59254等高item_mid泳装)误判为消耗品
                     _ctype = ITEM_TYPE_MAP.get(_im, 12)
-                    _ic[_im] = _ic.get(_im, 0) + 1
-                    icl.append({"item_mid": _im, "count": _ic[_im], "type": _ctype,
+                    _cnt_new = ic_add(_im, 1)
+                    icl.append({"item_mid": _im, "count": _cnt_new, "type": _ctype,
                                 "updated_at": server_now_str(), "created_at": server_now_str()})
                 else:
                     # 装备 (泳装/配饰): 进 equipment list, type 从主数据查 (1泳装/22头/23脸/24臂)
@@ -2750,6 +4586,53 @@ def _build_dynamic(path, req, method="POST"):
             return resp
         return None
 
+    # ---- 2026-11-08: 最近队伍动态化 (换女孩后不再返回抓包账号的 11/13) ----
+    #   重要: 客户端请求体用 65535/0xffff 表示"无替补", 真服 latest/team 一律规范成 -1。
+    #   直接回显 65535 会让客户端拿它当 girl_mid 查女孩对象 → 返回 nullptr →
+    #   DOAX_VV.exe+0x240dd1b 处 movzx edx,[rax+0x98] 空指针崩溃 (0xc0000005)。
+    if path == "/v1/quest/latest/team":
+        _tmpl_lt = (REAL_RESPONSES.get(path, {}) or {}).get("quest_latest_team", {}) or {}
+        _lt = dict(_tmpl_lt)
+        _t = STATE.get("quest_team") or {}
+        _valid_girls = set(GIRL_MASTER_MAP.keys())
+        for _k in ("girl_mid_forward", "girl_mid_back", "girl_mid_substitute"):
+            if _k not in _t:
+                continue
+            try:
+                _v = int(_t[_k])
+            except (TypeError, ValueError):
+                continue
+            if _k == "girl_mid_substitute":
+                _lt[_k] = _v if _v in _valid_girls else -1
+            elif _v in _valid_girls:
+                _lt[_k] = _v
+        # quest_mid 必须是客户端能在 quest/list 里查到的关卡, 否则同样会查表落空
+        _known_q = set()
+        for _o in SERVER_DB.get("endpoints", {}).get("/v1/quest/list", []):
+            for _q in (_o.get("quest_list") or []):
+                try:
+                    _known_q.add(int(_q.get("quest_mid")))
+                except (TypeError, ValueError):
+                    pass
+        for _qk in (STATE.get("cleared_quests") or {}):
+            try:
+                _known_q.add(int(_qk))
+            except (TypeError, ValueError):
+                pass
+        try:
+            _vm_i = int(_t.get("quest_mid"))
+        except (TypeError, ValueError):
+            _vm_i = 0
+        if _vm_i in _known_q:
+            _lt["quest_mid"] = _vm_i
+        for _k in ("quest_mid", "girl_mid_forward", "girl_mid_back", "girl_mid_substitute"):
+            try:
+                _lt[_k] = int(_lt[_k])
+            except (TypeError, ValueError, KeyError):
+                pass
+        _lt["owner_id"] = OWNER_ID
+        return {"quest_latest_team": _lt}
+
     # ---- 挑战赛开始: 按 quest_mid 分组推进 phase 状态机 ----
     if path == "/v1/quest/start":
         mid = str(req.get("quest_mid")) if req.get("quest_mid") is not None else None
@@ -2797,30 +4680,37 @@ def _build_dynamic(path, req, method="POST"):
         # 确保 this 局首调 quest/end 返回 phase 1 (否则跨局游标累积 → phase 错位 → -603)
         _set_quest_end_idx(mid, 0)
         _save_state()
-        # 2026-09-13: 挑战赛换女孩动态化 — team0 玩家方 girl_list 按 req 的 forward/back 改写 girl_mid+泳装
-        # 之前: resp 是静态抓包数据, girl_mid 是抓包时的女孩(如15), 不反映用户选择 → 进比赛不是选的女孩
+        # 2026-11-08: 挑战赛换女孩/换衣服动态化 (全套装备 + 技能, 不再只改 girl_mid 和泳装编号)
+        #   旧实现只覆盖泳装 item_mid, skill_list/饰品/回合技能仍是抓包账号的 → 比赛技能不随换装变化
         import copy as _qs_c2
         resp = _qs_c2.deepcopy(resp)
+        _team = {}
+        for _pos, _key in ((0, "girl_mid_forward"), (1, "girl_mid_back"), (6, "girl_mid_substitute")):
+            _v = req.get(_key)
+            if _v:
+                try:
+                    _iv = int(_v)
+                except (TypeError, ValueError):
+                    continue
+                # 65535/0xffff 等是"无替补"哨兵, 不能当 girl_mid 下发, 否则客户端查表落空崩溃
+                if _iv in GIRL_MASTER_MAP:
+                    _team[_pos] = _iv
+        if _team:
+            _saved_team = STATE.setdefault("quest_team", {})
+            for _pos, _key in ((0, "girl_mid_forward"), (1, "girl_mid_back")):
+                if _pos in _team:
+                    _saved_team[_key] = _team[_pos]
+            # 存档统一用真服的 -1 表示无替补
+            _saved_team["girl_mid_substitute"] = _team.get(6, -1)
+            _saved_team["quest_mid"] = mid_sub or mid
+            try:
+                _saved_team["quest_mid"] = int(_saved_team["quest_mid"])
+            except (TypeError, ValueError):
+                pass
+            _save_state()
         _qs_r2 = resp.get("quest_start", {}).get("result")
         if isinstance(_qs_r2, dict) and isinstance(_qs_r2.get("girl_list"), list):
-            _fwd2 = req.get("girl_mid_forward")
-            _bk2 = req.get("girl_mid_back")
-            _pos_mid = {0: _fwd2, 1: _bk2}
-            for _g2 in _qs_r2["girl_list"]:
-                if _g2.get("team") != 0:
-                    continue
-                _nm2 = _pos_mid.get(_g2.get("position"))
-                if _nm2:
-                    _g2["girl_mid"] = _nm2
-                    # 同步泳装: 从 STATE.girl_equipment 取该女孩当前泳装, 覆盖 equipment_list 的 type1
-                    _ge2 = STATE.get("girl_equipment", {}).get(str(_nm2), {})
-                    _sw2 = _ge2.get("swimsuit_item_mid")
-                    if _sw2:
-                        _el2 = _g2.get("equipment_list")
-                        if isinstance(_el2, list):
-                            for _e2 in _el2:
-                                if isinstance(_e2, dict) and _e2.get("type") == 1:
-                                    _e2["item_mid"] = _sw2
+            _sync_battle_girls(_qs_r2["girl_list"], _team or None)
         # 2026-09-12: phase 3 (is_continue=false) 时初始化比赛状态 (动态生成排球回合用)
         _qs_init = resp.get("quest_start", {})
         if _qs_init.get("phase") == 3 and _qs_init.get("is_continue") is False:
@@ -2882,14 +4772,25 @@ def _build_dynamic(path, req, method="POST"):
                 except (ValueError, TypeError):
                     _qe["quest_mid"] = mid_sub
         # 结束(phase5 continue=False)后重置, 下一局从 phase1 开始
+        # 2026-11-08: 下面要改写结算女孩, 先脱离响应池, 避免污染 SERVER_DB 静态数据
+        import copy as _qe_cp
+        resp = _qe_cp.deepcopy(resp)
         qe = resp.get("quest_end", {})
+        # 2026-11-08: 通关经验/升级应发给当前出战的两个女孩, 旧快照是抓包账号的 11/13
+        _lr = qe.get("levelup_reward")
+        if isinstance(_lr, dict) and isinstance(_lr.get("girl_list"), list):
+            _tm_end = _current_quest_team()
+            _ordered_end = [_tm_end[p] for p in (0, 1) if p in _tm_end]
+            for _i, _g_end in enumerate(_lr["girl_list"]):
+                if _i < len(_ordered_end) and isinstance(_g_end, dict):
+                    _g_end["girl_mid"] = _ordered_end[_i]
         # 2026-09-12 debug: 确认 mid_substitution 是否生效
         print(f"[QUEST-END-DBG] req_mid={mid_sub} fallback_mid={mid} idx={idx} resp_mid={qe.get('quest_mid')} phase={qe.get('phase')} cont={qe.get('is_continue')}", flush=True)
         if qe.get("is_continue") is False or qe.get("phase") == 5:
             _set_quest_end_idx(mid, 0)
             # 2026-09-12: 记录通关状态 (用于 quest/list 叠加 quest_clear)
             _qm_end = qe.get("quest_mid")
-            _now_str = server_now().strftime("%Y-%m-%d %H:%M:%S")
+            _now_str = server_now_str()
             _cleared = STATE.setdefault("cleared_quests", {})
             _cleared[str(_qm_end)] = {
                 "quest_clear": True,
@@ -2904,7 +4805,7 @@ def _build_dynamic(path, req, method="POST"):
             try:
                 _qm_int = int(_qm_end) if _qm_end else 0
                 if _qm_int in _QUEST_CATEGORY and _QUEST_CATEGORY[_qm_int] == 3:
-                    _today = server_now().strftime("%Y-%m-%d")
+                    _today = game_today_str()
                     if STATE.get("daily_quest_date") != _today:
                         STATE["daily_quest_date"] = _today
                         STATE["daily_quest_count"] = 0
@@ -2948,7 +4849,7 @@ def _build_dynamic(path, req, method="POST"):
         if ok:
             import copy as _copy
             resp = _copy.deepcopy(resp)
-            _today = server_now().strftime("%Y-%m-%d")
+            _today = game_today_str()
             if STATE.get("daily_quest_date") != _today:
                 STATE["daily_quest_date"] = _today
                 STATE["daily_quest_count"] = 0
@@ -3000,6 +4901,86 @@ def _build_dynamic(path, req, method="POST"):
             return resp
         return resp if ok else None
 
+    # ========================================================================
+    # 2026-11-07 背包修复③: 物品操作端点真实化
+    #   背景: 这些端点在 SERVER_DB 里只有"别的账号"的静态快照, 走到下面的响应池轮换后:
+    #     分解 → 回一堆不属于本账号的装备 id, 点了没删件、点数也不加;
+    #     封印 → 回别人的封印列表, 贴上去必然失败。
+    #   做: 用本账号真实存档(item_counts / equipment_inventory)生成响应并落盘。
+    # ========================================================================
+
+    # ---- 分解/回收套装: POST /v1/item/equipment/decompose ----
+    #   请求: {"item_equipment_id_list": [实例id, ...]}
+    #   真实响应: item_equipment_decompose_list(每件一条, source_item_mid + decompose_list)
+    #             + deleted_item_equipment_list + wallet_list   (抓包样本 3 份一致)
+    #   奖励: 维纳斯点数 35083, 泳装(1) 2 点/件, 其它装备 1 点/件 —— 与抓包中 271/320 两件一致
+    if path == "/v1/item/equipment/decompose" and method == "POST":
+        _req_ids = req.get("item_equipment_id_list", []) or []
+        _req_set = set()
+        for _x in _req_ids:
+            try:
+                _req_set.add(int(_x))
+            except (TypeError, ValueError):
+                pass
+        _inv = STATE.get("equipment_inventory", [])
+        _keep_inv = []
+        _gone = []
+        for _e in _inv:
+            if isinstance(_e, dict) and _e.get("id") in _req_set:
+                _gone.append(_e)
+            else:
+                _keep_inv.append(_e)
+        _dec_list, _del_list = [], []
+        _gain = 0
+        _now_dec = game_now_str()
+        for _e in _gone:
+            _mid_d = int(_e.get("item_mid") or 0)
+            _pt = 2 if _e.get("type") == 1 else 1
+            _gain += _pt
+            _dec_list.append({"source_item_mid": _mid_d,
+                              "decompose_list": [{"item_mid": 35083, "count": _pt}]})
+            _del_list.append({"id": _e.get("id"), "item_mid": _mid_d,
+                              "level": _e.get("level", 1),
+                              "combine_count": _e.get("combine_count", 0),
+                              "created_at": _e.get("created_at") or _now_dec})
+        if _gone:
+            STATE["equipment_inventory"] = _keep_inv
+            if _gain:
+                ic_add(35083, _gain)
+            _save_state()
+        print(f"[decompose] 请求 {len(_req_set)} 件, 实际删除 {len(_gone)} 件, 返还 35083 x{_gain}")
+        return {"item_equipment_decompose_list": _dec_list,
+                "deleted_item_equipment_list": _del_list,
+                "wallet_list": [dict(STATE.get("wallet", {}), owner_id=OWNER_ID)]}
+
+    # ---- 封印列表: GET /v1/seal ----
+    #   原走静态快照(别的账号的 100+ 个封印) → 客户端显示一堆没有的封印, 贴/拆都失败。
+    #   改为从衣橱 type=69 实例生成。
+    if path == "/v1/seal" and method == "GET":
+        _seal_l = []
+        for _e in STATE.get("equipment_inventory", []):
+            if isinstance(_e, dict) and _e.get("type") == 69:
+                _seal_l.append({
+                    "id": _e.get("id"),
+                    "item_mid": _e.get("item_mid", 0),
+                    "type": 69,
+                    "base_mid": _e.get("base_mid", 0),
+                    "pvp_base_mid": _e.get("pvp_base_mid", 0),
+                    "in_lock": _e.get("in_lock", 0),
+                    "skill_level": _e.get("skill_level", _e.get("level", 1)),
+                    "cost": _e.get("cost", 20),
+                    "rarity": _e.get("rarity", 2),
+                    "experience": _e.get("experience", 0),
+                })
+        return {"item_seal_list": _seal_l}
+
+    # ---- 待实现: 强化/合成/界限突破 —— 先只记录请求体, 拿到真实字段名后再做 ----
+    #   这三个目前仍返回抓包静态快照(里面的实例 id 不属于本账号), 点了会"有动画但属性不变"。
+    #   缺的是请求体真实字段名, 客户端点一次这里就会打日志, 下次照日志实现。
+    if path in ("/v1/item/equipment/combine", "/v1/item/equipment/limitbreak",
+                "/v1/item/equipment/upgrade/consume") and method == "POST":
+        print(f"[item-op待实现] {path} REQ={json.dumps(req, ensure_ascii=False)[:400]}")
+
     # ---- 其余端点: 有响应池则轮换, 否则交给上层 REAL_RESPONSES ----
     pool = eps.get(path)
     if pool:
@@ -3048,13 +5029,13 @@ RECENT_DAYS = 2700
 def normalize_dates(data):
     try:
         txt = data.decode("utf-8", "replace")
-        now = server_now()
-        # 2026-09-12 19点白屏修复: 归一化的"今天"用游戏日(19点后进位次日, game_today_str),
-        # 与客户端游戏日对齐 — 否则19点后服务器写日历今天、客户端游戏日=次日, 日期错位→大厅初始化循环.
-        # 只改替换目标日期; cutoff/window 仍用日历 now 判断"哪些日期在14天内"(不变).
-        # 开关: server_config game_day_boundary_hour=-1 时 game_today_str() 回退日历日(=修复前行为)
+        # 2026-11-07 REA 修正: 响应体里的日期串是 UTC (官方服务器如此, 客户端按 UTC 解析),
+        #   所以"今天/窗口"也必须用 UTC 计算。旧实现用本地 now -> 写出的时间比客户端"现在"快 8 小时,
+        #   等于给客户端一堆"未来时间", 北京 19:00 之后必然踩到 (19:00 本地 = 客户端眼中的次日 03:00)。
+        now = utc_now()
         today_d = game_today_str()
-        today = today_d + " " + now.strftime("%H:%M:%S")
+        # 完整时间戳 -> 真实 UTC 现在 (必须 >= 客户端算出的日界 "D 19:00:00", 否则被判"不是今天")
+        today = now.strftime("%Y-%m-%d %H:%M:%S")
         cutoff = now - datetime.timedelta(days=RECENT_DAYS)
 
         def repl_full(m):
@@ -3077,8 +5058,11 @@ def normalize_dates(data):
 
         # 完整时间戳 (YYYY-MM-DD HH:MM:SS)
         txt = re.sub(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', repl_full, txt)
-        # 纯日期 (YYYY-MM-DD, 不带时间; 避免误匹配时间戳已被替换的部分)
-        txt = re.sub(r'(?<!\d)\d{4}-\d{2}-\d{2}(?![\d\-])', repl_date, txt)
+        # 纯日期 (YYYY-MM-DD, 不带时间)
+        # 注意: 必须排除"后面跟着 空格+时分"的情况, 否则会把上一轮刚写好的完整时间戳
+        # "2026-11-07 08:15:32" 的日期段又改回游戏日 -> 整条时间戳落后一天 ->
+        # 客户端认为"今天还没签到"(received_at=昨天) -> 无限重跑登录序列 -> 白屏循环
+        txt = re.sub(r'(?<!\d)\d{4}-\d{2}-\d{2}(?![\d\-]|[T ]\d{2}:)', repl_date, txt)
         return txt.encode("utf-8")
     except Exception:
         return data
@@ -4135,10 +6119,9 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 _im, _cnt = 0, 0
             if _im and _cnt > 0:
-                _ic = STATE.setdefault("item_counts", {})
-                _ic[_im] = _ic.get(_im, 0) + _cnt
+                _new_cnt = ic_add(_im, _cnt)
                 _save_state()
-                resp = {"ok": True, "item_mid": _im, "count": _ic[_im]}
+                resp = {"ok": True, "item_mid": _im, "count": _new_cnt}
             else:
                 resp = {"ok": False, "error": "invalid item_mid or count"}
             data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
@@ -4189,24 +6172,55 @@ class Handler(BaseHTTPRequestHandler):
         #   铁证 captured_diff_private4: 购买43143后 GET /v1/shop/list 响应从10017B→10207B, 43143追加到 shop_purchase_list 末尾
         #   之前 shop/list 走静态 REAL_RESPONSES (53条旧记录), 新购买的43143/33345未叠加 → 商品买后仍显示可购买
         if path == "/v1/shop/list":
-            import copy as _shop_cp
-            _shop_base = REAL_RESPONSES.get("/v1/shop/list", {})
-            _shop_pl = _shop_cp.deepcopy(_shop_base.get("shop_purchase_list", []))
+            # ===== 2026-11-07 修复(核心): 不再返回抓包账号的 52 条历史购买记录 =====
+            # 病根: real_responses.json 里这份 shop_purchase_list 是别人账号 2020~2026 年的购买史,
+            #   而 normalize_dates 的窗口 RECENT_DAYS=2700 天, 会把它们的 created_at 全部改写成"现在"。
+            #   客户端因此认为这些商品"今天刚买过", 每日/限购商品的可购买数量直接算成 0
+            #   → 表现就是"商品显示数量 0 / 买不了", 买完也显示 0。
+            # 正确做法: 购买记录只来自本存档 (STATE.shop_purchased), 没买过就是没买过。
+            _shop_pl = []
             _shop_pur = STATE.get("shop_purchased", {})
-            if _shop_pur:
-                _shop_idx = {int(_e.get("product_mid", 0)): _e for _e in _shop_pl}
-                for _pmid, _cnt in _shop_pur.items():
+            _shop_time = STATE.setdefault("shop_purchased_at", {})
+            for _pmid, _cnt in _shop_pur.items():
+                try:
                     _pmid_i = int(_pmid)
-                    if _pmid_i in _shop_idx:
-                        _shop_idx[_pmid_i]["total_count"] = _shop_idx[_pmid_i].get("total_count", 0) + int(_cnt)
-                        _shop_idx[_pmid_i]["updated_at"] = server_now_str()
-                    else:
-                        _shop_pl.append({
-                            "owner_id": OWNER_ID, "product_mid": _pmid_i, "limit_count": 1,
-                            "total_count": int(_cnt), "created_at": server_now_str(), "updated_at": None
-                        })
+                    _c = int(_cnt)
+                except (TypeError, ValueError):
+                    continue
+                if _c <= 0:
+                    continue
+                # 历史购买(旧存档无时间戳)统一给 2019-01-01: 这个日期在 normalize_dates 的
+                #   2700 天窗口之外, 不会被改写成"今天", 客户端才会按"不是今天"处理每日限购。
+                _shop_pl.append({
+                    "owner_id": OWNER_ID, "product_mid": _pmid_i,
+                    "limit_count": max(1, _c), "total_count": _c,
+                    "created_at": _shop_time.get(str(_pmid_i), "2019-01-01 00:00:00"),
+                    "updated_at": None
+                })
             return {"shop_purchase_list": _shop_pl}
-        # 特殊处理: special_order/37 的 pose card 物品在 PosecardShopItemList.csv 缺失, 返回空避免崩溃
+        # 特殊处理: special_order/37 = "已解锁的姿势卡列表" —— 这才是姿势/表情菜单的真正解锁载体
+        #   2026-11-08 14:20 重大修正: 此前硬编码返回 [] 导致除自带基础 6 张外全部锁死。
+        #   条目格式照抄同族端点 /v1/special_order/29 的 order_ticket_list:
+        #     {"item_mid":..,"count":1,"type":37,"updated_at":null,"created_at":"2019-03-28 11:13:59"}
+        #   全集: Equipment_Parameter type37=1325 张姿势卡 + type81=2416 张表情卡 = 3741 条 ≈ 180KB
+        #   (远低于 private_items 5.19MB 的安全水位, 不会 OOM)。
+        if path == "/v1/special_order/37" and _POSE_CARD_ORDER_ENABLED:
+            _pc_lst = [{"item_mid": _pc_m, "count": 1, "type": 37,
+                        "updated_at": None, "created_at": _POSE_CARD_TS}
+                       for _pc_m in POSE_ITEM_MIDS]
+            if _POSE_CARD_INCLUDE_EXPR:
+                _pc_lst.extend({"item_mid": _pc_m, "count": 1, "type": 81,
+                                "updated_at": None, "created_at": _POSE_CARD_TS}
+                               for _pc_m in EXPR_ITEM_MIDS)
+            _pose_trace(0, 37, len(_pc_lst))
+            return {"pose_card_item_list": _pc_lst}
+        # 表情的独立入口(客户端目前在日志里没请求, 保留以防某些界面按 type 单独拉)
+        if path == "/v1/special_order/81" and _POSE_CARD_ORDER_ENABLED:
+            _pe_lst = [{"item_mid": _pc_m, "count": 1, "type": 81,
+                        "updated_at": None, "created_at": _POSE_CARD_TS}
+                       for _pc_m in EXPR_ITEM_MIDS]
+            _pose_trace(0, 81, len(_pe_lst))
+            return {"pose_card_item_list": _pe_lst}
         if path == "/v1/special_order/37":
             return {"pose_card_item_list": []}
         # 2026-09-17: tutorial flag 对齐私服版(抓包铁证) — 补上私服独占bit, 解锁滑落等功能
@@ -4330,10 +6344,48 @@ class Handler(BaseHTTPRequestHandler):
                 # 从原始 /v1/item/consume 响应为基础, 叠加 STATE 追踪的库存变化
                 import copy as _cp_ic
                 base_ic = _cp_ic.deepcopy(SERVER_DB.get("endpoints", {}).get("/v1/item/consume", [{}])[0])
-                for item in base_ic.get("item_consume_list", []):
+                _lst_ic = base_ic.setdefault("item_consume_list", [])
+                # 2026-11-07 修复①b: 旧逻辑只"覆盖"已有条目, 从不"追加"新物品
+                #   实证: 抓包 base 只有 290 种, STATE 实际 367 种 → 77 种物品永远不返回
+                #   (含 15 种 999999 货币 + 购买/领取的道具) → 客户端显示 0 / 背包里没有 / 道具无法使用
+                #   这里统一用 int 键归一化(历史代码有 str 键写入) 并补齐缺失条目。
+                _icn = {}
+                for _kx, _vx in ic.items():
+                    try:
+                        _icn[int(_kx)] = int(_vx)
+                    except (TypeError, ValueError):
+                        continue
+                _seen_ic = set()
+                # 2026-11-07 修复②b: 输出前过滤两类脏数据
+                #   ① count<=0 —— 真实服务器不会把"数量 0"的物品放进背包; 客户端拿到 0 会
+                #      显示成"有这件但数量 0", 既用不了也丢不掉(用户反馈的"数量不对")。
+                #   ② 装备表(Equipment_Parameter)里的 item_mid —— 属于衣橱实例,
+                #      同时出现在背包会让同一件东西被算两次。
+                _out_ic = []
+                for item in _lst_ic:
                     mid = item.get("item_mid")
-                    if mid is not None and mid in ic:
-                        item["count"] = ic[mid]
+                    if mid is None:
+                        continue
+                    _seen_ic.add(mid)
+                    _cnt_now = _icn.get(mid, item.get("count", 0) or 0)
+                    if _cnt_now <= 0 or mid in EQUIP_TYPE_MAP:
+                        continue
+                    item["count"] = _cnt_now
+                    _out_ic.append(item)
+                _now_ic = game_now_str()
+                _appended = 0
+                for _mid2, _cnt2 in _icn.items():
+                    if _mid2 in _seen_ic:
+                        continue
+                    if _cnt2 <= 0 or _mid2 in EQUIP_TYPE_MAP:
+                        continue
+                    _out_ic.append({"item_mid": _mid2, "count": _cnt2,
+                                    "type": ITEM_TYPE_MAP.get(_mid2, 0),
+                                    "updated_at": None, "created_at": _now_ic})
+                    _appended += 1
+                base_ic["item_consume_list"] = _out_ic
+                if _appended:
+                    print(f"[/v1/item/consume] 追加缺失库存 {_appended} 条 (总 {len(_out_ic)})")
                 return base_ic
         # ---- 任务全部标记完成 (2026-09-07 复活版): 让"新任岛主应援"看板任务面板关闭 ----
         # 原理: 客户端读 mission_list 的 progress 判断任务状态, progress=3 视为完成
@@ -4386,17 +6438,127 @@ class Handler(BaseHTTPRequestHandler):
                 # /v1/swimsuit_arrange_flag/<owner_id> 查别人的 arrange flag — 单机无他人
                 return {"swimsuit_arrage_flag_other_list": []}
             if len(_sp) == 3 and method == "PUT":
-                # PUT /v1/swimsuit_arrange_flag/<girl_mid> 切换开关 — 单机强制 switch=1 始终开启
+                # PUT /v1/swimsuit_arrange_flag/<girl_mid> 切换泳装形态/配色 (7.5周年新功能)
+                # 2026-11-08: 之前伪造 variation=2/switch=1 固定值 — 客户端切形态后收不到自己提交的值
+                #   → 模型切回默认形态, 表现就是"点了模式箭头没变化"。
+                # 正确做法: 回显请求体里的 variation/switch, 并持久化到 STATE, GET 时返回。
                 _gm_put = 0
                 try:
                     _gm_put = int(_sp[2])
                 except Exception:
                     pass
-                return {"swimsuit_arrage_flag": {"owner_id": OWNER_ID, "girl_mid": _gm_put, "variation": 2,
-                        "switch": 1, "created_at": "2026-09-16 00:00:00", "updated_at": "2026-09-16 00:00:00"}}
-            # GET /v1/swimsuit_arrange_flag — 私服版返回空(抓包铁证); 滑落由 visual_state_flag_b 控制, 不靠 arrange_flag
-            # (原 switch=1+variation=2 是无效值, 会让打扮里滑落按钮变灰; 私服版空列表+按钮可点)
-            return {"swimsuit_arrage_flag_list": []}
+                _af_var = req.get("variation", 0) if isinstance(req, dict) else 0
+                _af_sw = req.get("switch", 0) if isinstance(req, dict) else 0
+                try:
+                    _af_var = int(_af_var); _af_sw = int(_af_sw)
+                except (TypeError, ValueError):
+                    _af_var = 0; _af_sw = 0
+                _af_now = server_now_str()
+                # 2026-11-08: 列表条目结构由 IDA 实证 (sub_14236F7F0) = {item_mid, variation, created_at}
+                #   → 必须记下"切换时她穿的泳装 item_mid", 重启后客户端靠它把形态套回具体泳装.
+                _af_gear = STATE.get("girl_equipment") or {}
+                _af_g = _af_gear.get(str(_gm_put)) or _af_gear.get(_gm_put) or {}
+                _af_item = 0
+                try:
+                    _af_item = int(_af_g.get("swimsuit_item_mid", 0) or 0)
+                except (TypeError, ValueError):
+                    _af_item = 0
+                _af_state = STATE.setdefault("swimsuit_arrange_flags", {})
+                _af_state[str(_gm_put)] = {"variation": _af_var, "switch": _af_sw,
+                                           "item_mid": _af_item,
+                                           "updated_at": _af_now}
+                _save_state()
+                print(f"[swimsuit_arrange_flag] girl={_gm_put} item={_af_item} "
+                      f"variation={_af_var} switch={_af_sw}")
+                _arrange_trace("PUT", girl=_gm_put, item=_af_item,
+                               variation=_af_var, switch=_af_sw,
+                               body=json.dumps(req, ensure_ascii=False)[:200])
+                return {"swimsuit_arrage_flag": {"owner_id": OWNER_ID, "girl_mid": _gm_put,
+                        "variation": _af_var, "switch": _af_sw,
+                        "created_at": "2026-09-16 00:00:00", "updated_at": _af_now}}
+            # GET /v1/swimsuit_arrange_flag — 回放已保存形态
+            #   2026-11-08: 实测回放 {item_mid:59983, variation:74} 会让客户端在收到响应瞬间崩溃
+            #   (ucrtbase 0xc0000409 快速失败, 疑似 variation 被当作变体数组下标 → 越界抛异常 → abort)
+            #   → 默认关闭回放, 恢复"空列表"的安全行为, 待确认 variation 的真实语义后再开.
+            if not _ARRANGE_REPLAY_ENABLED:
+                _arrange_trace("GET", replay="off",
+                               saved=json.dumps(STATE.get("swimsuit_arrange_flags") or {},
+                                                ensure_ascii=False)[:300])
+                return {"swimsuit_arrage_flag_list": []}
+            _af_dirty = False
+            _af_own = set()
+            for _e_af in STATE.get("equipment_inventory", []):
+                if isinstance(_e_af, dict) and _e_af.get("type") == 1:
+                    _af_own.add(_e_af.get("item_mid", 0))
+            _af_out = []
+            _af_seen = set()
+            for _k_af, _v_af in (STATE.get("swimsuit_arrange_flags") or {}).items():
+                if not isinstance(_v_af, dict):
+                    continue
+                try:
+                    _im_af = int(_v_af.get("item_mid", 0) or 0)
+                except (TypeError, ValueError):
+                    _im_af = 0
+                if not _im_af:
+                    # 旧记录 (无 item_mid) → 用该女孩当前穿的泳装回填
+                    _g_af = (STATE.get("girl_equipment") or {}).get(str(_k_af)) or {}
+                    try:
+                        _im_af = int(_g_af.get("swimsuit_item_mid", 0) or 0)
+                    except (TypeError, ValueError):
+                        _im_af = 0
+                    if _im_af:
+                        _v_af["item_mid"] = _im_af
+                        _af_dirty = True
+                if not _im_af or _im_af in _af_seen or _im_af not in _af_own:
+                    continue
+                _af_seen.add(_im_af)
+                # ============================================================================
+                # 【勿再尝试 · 2026-11-08 已两次实测失败, 用户决定暂时搁置】
+                # 目标: 让"泳装模式(多形态/多配色)"在完全退出游戏后仍保持切换结果。
+                #
+                # 已验证的事实 (arrange_trace.log):
+                #   1. 客户端点模式箭头**确实会发** PUT /v1/swimsuit_arrange_flag/{girl},
+                #      body 恒为 {"switch": 0 或 1, "variation": 74}, 连点 7 次 variation 全是 74,
+                #      只有 switch 在 0/1 交替 → variation 是"这件泳装自己的固定标识", switch 才是形态开关。
+                #      (注: 曾误判"点箭头 0 请求", 那是 logutil 16KB 缓冲 + bat 启动看不到 print 造成的假象)
+                #   2. GET /v1/swimsuit_arrange_flag 是客户端**启动时**拉取的(每次启动一次, 在登录流程很早的位置)。
+                #   3. 该列表条目结构由 IDA 反编译实证(sub_14236F7F0) = {item_mid, variation, created_at}。
+                #
+                # 两次失败的尝试 (都会让客户端 ucrtbase.dll 0xc0000409 快速失败 → 进程 abort):
+                #   A. 回放 {item_mid: 59983, variation: 74} → 崩
+                #   B. 回放 {item_mid: 59983, variation: 1}  → 也崩 (1 是 /v1/dishevelment 在真实抓包里的常用值)
+                #   → 结论: 问题不在 variation 取值, 而是"非空列表"本身缺少客户端必需的配套数据
+                #     (极可能 item_mid 不是泳装 mid, 或条目要配合一张客户端内置的变体表才能解析)。
+                #
+                # 要真正修好, 唯一可靠路径: 在能正常切形态的正版/私服环境里,
+                #   切完形态后抓一次 **非空** 的 GET /v1/swimsuit_arrange_flag 响应, 照抄结构。
+                #   靠反编译只能看到字段名, 看不到"哪些字段必须有值/取值范围", 这正是两次都栽在同一处的原因。
+                #
+                # 现状(可接受): 开关 _ARRANGE_REPLAY_ENABLED = False → 返回空列表,
+                #   形态切换在**游戏内**正常(会话内即时生效), 只是完全重启后回到默认形态。不影响正常游玩。
+                # ============================================================================
+                try:
+                    _af_on = 1 if int(_v_af.get("switch", 0) or 0) else 0
+                except (TypeError, ValueError):
+                    _af_on = 0
+                if not _af_on:
+                    _arrange_trace("SKIP-SWITCH-OFF", girl=_k_af, item=_im_af)
+                    continue
+                # 兜底保护: 值域仍限制在 0..CAP (1 必然通过; 只防未来手改数据)
+                if _af_on < 0 or _af_on > _ARRANGE_VARIATION_CAP:
+                    _arrange_trace("SKIP-OUT-OF-RANGE", girl=_k_af, item=_im_af,
+                                   variation=_af_on, cap=_ARRANGE_VARIATION_CAP)
+                    continue
+                _af_out.append({"item_mid": _im_af, "variation": _af_on,
+                                "created_at": _v_af.get("updated_at") or server_now_str()})
+            if _af_dirty:
+                _save_state()
+            _arrange_trace("GET", replay="on", count=len(_af_out),
+                           items=[(e["item_mid"], e["variation"]) for e in _af_out][:10])
+            if _af_out:
+                print(f"[swimsuit_arrange_flag] GET 回放 {len(_af_out)} 条: "
+                      f"{[(e['item_mid'], e['variation']) for e in _af_out]}")
+            return {"swimsuit_arrage_flag_list": _af_out}
         # 2026-09-17: max_combine 动态化 — 客户端用此列表判"技能觉醒到最大限度"以解锁泳装滑落
         # 原走 REAL_RESPONSES 静态快照(只含私服6件 426/431/434/493/558/2980), GM 泳装不在列表→滑落按钮灰.
         # 抓包铁证: 客户端 GET /v1/max_combine 后, 查 worn swimsuit 是否在 max_combine_swimsuit_list 里.
@@ -4528,7 +6690,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def _ensure_tls_cert():
     """缺失时自动生成自签名 TLS 证书 (doaxvv_cert.pem / doaxvv_key.pem)。
-    客户端经 hosts 劫持连本机, 不校验证书, 故自签名即可 (原用户证书已作为敏感数据移除)。"""
+    客户端经 hosts 劫持连本机, 不校验证书, 故自签名即可。"""
     if os.path.exists(CERT) and os.path.exists(KEY):
         return
     print("[*] TLS 证书缺失, 自动生成自签名证书...")

@@ -2,15 +2,16 @@
 """
 stop_all.py — 一键关闭: 关服务器+托盘+hosts (start_all 的逆操作)
 被 一键关闭.bat/.vbs 调用。
-(2026-09-18: 时间钳制移除, 不再杀探针/复位偏移)
+2026-11-07: 时间钳制机制(clamp_offset.py 等)已整体移除并归档, 本脚本不再调用它,
+            只把服务器的 time_offset_config.json 归零, 清掉可能的历史残留偏移。
 """
-import os, sys, subprocess, time
+import os, sys, json, subprocess, time
 try: sys.stdout.reconfigure(line_buffering=True)
 except Exception: pass
 
 DIR = os.path.dirname(os.path.abspath(__file__))  # DOAXVV_Server
 HOSTS_SWITCH = os.path.join(DIR, "hosts_switch.ps1")
-CLAMP = os.path.join(DIR, "clamp_offset.py")
+OFFSET_FILE = os.path.join(DIR, "local_server", "time_offset_config.json")
 PY = sys.executable
 CREATE_NO_WINDOW = 0x08000000
 
@@ -39,6 +40,23 @@ def hosts_hijacked():
     except Exception:
         return False
 
+def reset_time_offset():
+    """时间偏移归零 (服务器 local_server_v2.py 仍读该文件, 非 0 会让服务器时间偏离真实时间)"""
+    try:
+        if not os.path.exists(OFFSET_FILE):
+            return True
+        cfg = json.load(open(OFFSET_FILE, encoding="utf-8"))
+        keys = ("offset_days", "offset_hours", "offset_minutes", "offset_seconds")
+        if not any(int(cfg.get(k, 0) or 0) != 0 for k in keys):
+            return True
+        for k in keys:
+            cfg[k] = 0
+        with open(OFFSET_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
 def main():
     print("=" * 60)
     print(" DOAXVV 一键关闭: 服务器 + 托盘 + hosts")
@@ -47,9 +65,6 @@ def main():
     n443 = kill_pids(run_ps("Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique"))
     nls = kill_pids(run_ps("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'local_server_v2' } | Select-Object -ExpandProperty ProcessId"))
     print("  服务器: " + ("已关闭" if (n443 or nls) else "未运行, 跳过"))
-
-    nprb = kill_pids(run_ps("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'probe_smart_clamp' } | Select-Object -ExpandProperty ProcessId"))
-    print("  探针: " + ("已关闭" if nprb else "未运行, 跳过"))
 
     ntray = kill_pids(run_ps("Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' -and $_.CommandLine -match 'tray_app.py' } | Select-Object -ExpandProperty ProcessId"))
     print("  托盘: " + ("已关闭" if ntray else "未运行, 跳过"))
@@ -64,7 +79,7 @@ def main():
     else:
         print("  hosts: 未劫持, 跳过")
 
-    subprocess.run([PY, CLAMP, "--reset"])
+    print("  时间偏移: " + ("已归零" if reset_time_offset() else "[WARN] 归零失败, 请检查 time_offset_config.json"))
     time.sleep(1)
     still = run_ps("Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess")
     print("\n" + ("[OK] 全部已关闭" if not still else "[WARN] 443 仍被占用, 请手动检查"))

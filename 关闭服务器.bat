@@ -8,5 +8,5 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $
 rem 2. Kill 443 listener
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { taskkill /F /PID $_.OwningProcess 2>$null }; Write-Host '  Port 443: released'"
 
-timeout /t 2 >nul
+ping -n 3 127.0.0.1 >nul
 echo [OK] Server stopped

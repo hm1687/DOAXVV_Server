@@ -59,7 +59,7 @@ function Get-CurrentState {
 switch ($Action.ToLower()) {
     "on" {
         Write-Host "=== ENABLE hijack: standalone -> local server ===" -ForegroundColor Cyan
-        # 2026-09-10: 劫持列表扩展 — 补上启动器后端 api01.doaxvv.com (维护/版本检查)
+        # 2026-09-10: hijack list extended - added api01.doaxvv.com (launcher backend)
         $required = @("api.doaxvv.com", "game.doaxvv.com", "api01.doaxvv.com")
         $content = Get-Content $HOSTS -ErrorAction SilentlyContinue
         $missing = @($required | Where-Object {
