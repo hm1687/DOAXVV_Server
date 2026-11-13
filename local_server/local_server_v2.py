@@ -5,7 +5,7 @@ local_server_v2.py — 完整本地单机服务器 (CSV版)
   2. /v1/csv/list 返回真实 csv_file_list (zlib压缩)
   3. /production/csv/<ver>/<hash> 返回 gzip 压缩的 CSV 明文
 """
-import os, json, ssl, datetime, uuid, base64, zlib, gzip, re, time, threading, socket as _sockmod
+import os, json, ssl, datetime, uuid, base64, zlib, gzip, re, time, threading, socket as _sockmod, csv
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -15,9 +15,9 @@ from cryptography import x509
 
 from paths import OUT, CERT, KEY, LOG, GM_HTML, RSA_PUB, RSA_PRIV, TOOL, CSV_LIST_JSON, CSV_MASTER
 
-# 鉴权凭据 (敏感: 原硬编码 Token/owner_id 已移除, 改为从环境变量读取; 见 README)
-TOKEN = os.environ.get("DOAXVV_TOKEN", "")
-OWNER_ID = int(os.environ.get("DOAXVV_OWNER_ID", "0") or "0")
+# 鉴权凭据 (2026-11-12: 默认值改为无意义占位, 可用环境变量覆盖; 见 README)
+TOKEN = os.environ.get("DOAXVV_TOKEN", "deadbeefdeadbeefdeadbeefdeadbeef")
+OWNER_ID = int(os.environ.get("DOAXVV_OWNER_ID", "114514") or "114514")
 SESSION_KEY = None
 
 # 2026-11-08: 泳装形态列表回放开关.
@@ -296,7 +296,7 @@ def _get_akamai_fallback_ips():
 
 # ===== 服务器时间 (本地时间 + 时间偏移) =====
 # 时间偏移从 time_offset_config.json 读取。该机制原本用于"钳制"(clamp_offset.py 写入 + frida 探针同步改客户端),
-# 2026-11-07 旧时间钳制机制整体停用并移出仓库, 19点白屏根因已按客户端 19:00 UTC 日切修正。
+# 2026-11-07 钳制整体移除(已整体停用并移出仓库), 19点白屏根因已按客户端 19:00 UTC 日切修正。
 # 现在该文件只作为"可选的手工偏移", 正常情况必须全 0: 一旦非 0, 服务器时间就偏离真实时间,
 # 而客户端已无探针跟随 → 时间戳/日切再次错位 → 必定白屏。托盘/一键关闭都会把它归零。
 TIME_OFFSET_FILE = os.path.join(OUT, "time_offset_config.json")
@@ -467,6 +467,142 @@ if os.path.exists(_cp_path):
 
 # 装备类型映射: item_mid -> type (从 Equipment_Parameter.csv col1)
 # 2026-09-13 故障2: 扭蛋抽到的装备 type 不全是1 (头饰22/脸饰23/臂饰24等), 需从主数据查
+# 2026-11-11c: 会让客户端"任务"面板闪退的 mission_mid 黑名单 (现已清空, 见下)
+#   现象: 主界面点"任务"按钮 → 界面卡住 → 闪退 (0xc0000005)
+#   定位: 崩溃转储 201905 / 203849 / 205103 / 205600 / 210846 五份,
+#     崩溃点全是 DOAX_VV.exe+0x274e73b, Rax=0 且 Rdx 恒为 0x3486(13446)。
+#     指令 cmp dword ptr [rax+8], 3 — 前一条 call 0x24cece0 是
+#     std::map<int, MissionState>::find(内联, 未命中返回 0, 命中返回 node+0x28),
+#     客户端用 mission_mid 查内部任务状态表, 返回 NULL 后未判空直接 [rax+8] → 空指针。
+#   真正的根因 (2026-11-11c 修正, 之前判错了):
+#     崩溃时被遍历的 int 数组长度 = (R14-R15)/4 = 27 项 —— 这正好是
+#     MissionData.csv 里 category=9 的任务总数(27 个), 且第一个就是 13446。
+#     客户端任务面板遍历的是【本地 csv 的 category=9 任务 mid 列表】,
+#     逐个去 mission 状态 map 查状态; 而服务端 /v1/mission/9 的抓包快照是 [],
+#     multiple 里含 13446 的那份样本又被旧黑名单剔掉 → map 里一条都没有
+#     → 第一个元素就空指针。所以"剔除 13446"不但无效, 反而让它必崩。
+#   正确做法: 见 _gen_mission_list_by_category — 按类别把任务补齐下发, 让 map 有键。
+#   仅保留集合本身作为应急开关, 正常为空。
+MISSION_MID_BLOCKLIST = frozenset()
+
+# 2026-11-11b: 任务主数据集合 (MissionData.csv col0)。
+#   抓包池里 /v1/mission/7 的 50 份样本**每一份最后一条都是** {"mission_mid": 0, ...},
+#   而 0 不在任何任务表里 → 客户端任务面板查表返回 NULL 后解引用 → 与 13446 同款
+#   0xc0000005 空指针。因为本服把全部任务 progress 强设为 3(可领取), 这条脏数据会被
+#   当成"可领取任务"去渲染, 属于必然触发的下一颗雷, 故在响应侧统一剔除。
+MISSION_MASTER_IDS = set()
+# 2026-11-11c: 任务类别索引 category -> [(mission_mid, start, end), ...]
+#   用途见 _gen_mission_list_by_category()
+MISSION_BY_CAT = {}
+_md_path = os.path.join(CSV_MASTER, "MissionData.csv")
+if os.path.exists(_md_path):
+    import csv as _mdcsv
+    with open(_md_path, "r", encoding="utf-8-sig") as _md_f:
+        for _row in _mdcsv.reader(_md_f):
+            if _row and _row[0].strip().isdigit():
+                _mid = int(_row[0])
+                MISSION_MASTER_IDS.add(_mid)
+                if len(_row) > 4:
+                    MISSION_BY_CAT.setdefault(_row[2].strip(), []).append(
+                        (_mid, _row[3].strip(), _row[4].strip()))
+    print(f"[*] 已加载任务主数据: {len(MISSION_MASTER_IDS)} 条 (MissionData), "
+          f"类别索引: " + ", ".join(f"{k}={len(v)}" for k, v in sorted(MISSION_BY_CAT.items())))
+
+
+def _gen_mission_list_by_category(_cat):
+    """按 MissionData 的 category 生成 mission_list (progress=3 已完成)。
+    2026-11-11c: 客户端任务面板会遍历【本地 csv 的 category=8/9 任务 mid】,
+      逐个查内部 mission 状态 map; 服务端若一条都不下发就整段缺失 → 空指针闪退。
+      category=9 的第一个任务就是 13446 (见 MISSION_MID_BLOCKLIST 注释)。"""
+    _out = []
+    for _mid, _st, _en in MISSION_BY_CAT.get(str(_cat), []):
+        _out.append({
+            "mission_mid": _mid,
+            "progress": 3,
+            "started_at": _st or "2019-03-28 11:10:39",
+            # end 为空时跟 start 保持一致 (normalize_dates 会把两者同样改写, 不会出现 end<start)
+            "end_at": _en or (_st or "2019-03-28 11:10:39"),
+            "param1": 0,
+        })
+    return _out
+
+
+def _mission_mid_ok(_m):
+    """mission_mid 是否可安全下发给客户端。
+    拒绝: 非整数 / <=0 / 黑名单 / 不在 MissionData 主数据里。
+    2026-11-11b: 客户端对查不到的任务 id 没有判空, 直接 [rax+8] → 闪退。"""
+    try:
+        _i = int(_m)
+    except (TypeError, ValueError):
+        return False
+    if _i <= 0 or _i in MISSION_MID_BLOCKLIST:
+        return False
+    if MISSION_MASTER_IDS and _i not in MISSION_MASTER_IDS:
+        return False
+    return True
+
+
+def _mission_panel_list(_tokens):
+    """按请求里的 mission_ids(面板号) 合并出完整 mission_list。
+    2026-11-11e: 客户端的 mission_ids 是【面板号】而不是类别号, 一次要一批面板:
+        "1,2" → /mission/1(27) + /mission/2(42) = 69 条, "3,4" → 162, "5,6" → 82,
+        "7"   → 1011 条(唯一含 category=8/9 的那份: 8×9 + 9×27)。
+      单个面板的完整列表 == 对应 /v1/mission/<号> 抓包 pool[0] 的 mission_list。
+      面板 8/9 真实服务器对该账号返回空, 用主数据按类别补全(见 _gen_mission_list_by_category)。
+    返回去重后的原始条目(已 deepcopy), progress / 合法性由调用方处理。"""
+    import copy as _cp_pl
+    _ep = (SERVER_DB.get("endpoints", {}) or {})
+    _out, _seen = [], set()
+    for _tk in _tokens:
+        if _tk in ("8", "9"):
+            _part = _gen_mission_list_by_category(_tk)
+        else:
+            _pool = _ep.get("/v1/mission/" + _tk) or []
+            _head = _pool[0] if _pool and isinstance(_pool[0], dict) else None
+            _part = (_head or {}).get("mission_list") or []
+        for _t in _part:
+            if not isinstance(_t, dict):
+                continue
+            _m = _t.get("mission_mid")
+            if _m in _seen:
+                continue
+            _seen.add(_m)
+            _out.append(_cp_pl.deepcopy(_t))
+    return _out
+
+
+def _mission_selfcheck():
+    """启动后首次访问任务接口时自检: 统计"客户端会枚举的类别"是否被状态表覆盖。
+    客户端任务面板(岛主应援)按本地 csv 的 category=9 列表逐个查状态 map, 缺一条就空指针
+    (2026-11-11 闪退根因)。这里把 1-9 全部面板合并后按类别统计覆盖度写日志, 方便复发时定位。"""
+    try:
+        _toks = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        _merged = _mission_panel_list(_toks)
+        _mid2cat = {}
+        for _c, _lst in MISSION_BY_CAT.items():
+            for _mid, _st, _en in _lst:
+                _mid2cat[_mid] = _c
+        _have = {}
+        for _t in _merged:
+            _c = _mid2cat.get(_t.get("mission_mid"))
+            _have[_c] = _have.get(_c, 0) + 1
+        _lines = []
+        for _c in sorted(MISSION_BY_CAT, key=lambda x: (len(x), x)):
+            _need = len(MISSION_BY_CAT[_c])
+            _got = _have.get(_c, 0)
+            _lines.append(f"cat{_c} {_got}/{_need}")
+        log_write("  [MISSION] 自检(全面板合并 %d 条): %s\n"
+                  % (len(_merged), " ".join(_lines)))
+        # category=9(岛主应援 27 条)是已证实的闪退源: 缺一条客户端就空指针
+        _miss9 = [m for m, _s, _e in MISSION_BY_CAT.get("9", []) if m not in
+                  {t.get("mission_mid") for t in _merged}]
+        if _miss9:
+            log_write(f"  [MISSION][WARN] category=9 缺 {len(_miss9)} 条 "
+                      f"(前5 {_miss9[:5]}) — 客户端枚举到必闪退\n")
+    except Exception as _ex:
+        log_write(f"  [MISSION] 自检异常: {_ex}\n")
+
+
 EQUIP_TYPE_MAP = {}
 _ep_path = os.path.join(CSV_MASTER, "Equipment_Parameter.csv")
 if os.path.exists(_ep_path):
@@ -497,6 +633,204 @@ if os.path.exists(_gm_path):
                 except (ValueError, IndexError):
                     pass
     print(f"[*] 已加载女孩主数据: {len(GIRL_MASTER_MAP)} 个 (girl_master)")
+
+# 2026-11-13: /v1/girl 实际返回的 girl_list 顺序 (affection_level_reward_list 必须同序)
+GIRL_RESP_ORDER = []
+
+def affection_girl_order():
+    _o = [g for g in GIRL_RESP_ORDER if g in GIRL_MASTER_MAP]
+    for _g in sorted(GIRL_MASTER_MAP):
+        if _g not in _o:
+            _o.append(_g)
+    return _o
+
+# ===== 2026-11-13: 维纳斯图板 (Venus Board / 维纳斯面板) 主数据 =====
+# 表结构(无表头, 来自 csv_master):
+#   VenusBoard_Panel.csv       : panel_id, content_mid, girl_mid(-1=全女孩), panel_type,
+#                                ?, ?, cost_item_mid, cost_count, ?, ?, gain, reward_group
+#   VenusBoard_PanelReward.csv : reward_group, girl_mid(-1=全女孩), item_mid, count
+#   VenusBoard_ReleaseGirls.csv: idx, girl_mid, flag
+# 说明(抓包实证):
+#   - open 响应 {"venus_board_reward_list":[{"item_mid":35008,"count":1003217}], ...}
+#     里 35008 的 count 是剧情 episode_mid(EpisodeList 可查到 1003217), 不是数量;
+#     25001(扭蛋券) 的 count 是 gacha_mid(1451~1460 正好对应 Gacha.csv 的扭蛋 id), 也不是数量。
+#     这两类只回填 reward_list, 不写进背包数量, 否则会凭空多出百万件道具。
+#   - 其余 item_mid 按常规处理: 消耗品→item_counts, 装备→equipment_inventory。
+VENUS_PANEL_ROWS = []
+VENUS_REWARD_MAP = {}
+VENUS_RELEASE_GIRLS = set()
+_VENUS_ID_LIKE_ITEMS = {35008, 25001}
+
+def _venus_int(s, default=0):
+    try:
+        return int(str(s).strip())
+    except (TypeError, ValueError):
+        return default
+
+_vb_panel_path = os.path.join(CSV_MASTER, "VenusBoard_Panel.csv")
+if os.path.exists(_vb_panel_path):
+    import csv as _vbcsv
+    try:
+        with open(_vb_panel_path, "r", encoding="utf-8-sig") as _vb_f:
+            for _row in _vbcsv.reader(_vb_f):
+                if len(_row) < 12 or not _row[0].strip().isdigit():
+                    continue
+                VENUS_PANEL_ROWS.append({
+                    "panel_id": _venus_int(_row[0]),
+                    "content_mid": _venus_int(_row[1]),
+                    "girl_mid": _venus_int(_row[2], -1) if _row[2].strip() else -1,
+                    "panel_type": _venus_int(_row[3]),
+                    "cost_item": _venus_int(_row[6]),
+                    "cost": _venus_int(_row[7]),
+                    "gain": _venus_int(_row[10]),
+                    "reward_group": _venus_int(_row[11]),
+                })
+        print(f"[*] 已加载维纳斯图板: {len(VENUS_PANEL_ROWS)} 条面板 (VenusBoard_Panel)")
+    except Exception as _vb_ex:
+        print(f"[!] 维纳斯面板加载失败: {_vb_ex}")
+
+_vb_reward_path = os.path.join(CSV_MASTER, "VenusBoard_PanelReward.csv")
+if os.path.exists(_vb_reward_path):
+    import csv as _vbrcsv
+    try:
+        with open(_vb_reward_path, "r", encoding="utf-8-sig") as _vbr_f:
+            for _row in _vbrcsv.reader(_vbr_f):
+                if len(_row) < 4 or not _row[0].strip().isdigit():
+                    continue
+                _grp = _venus_int(_row[0])
+                _gm = _venus_int(_row[1], -1) if _row[1].strip() else -1
+                VENUS_REWARD_MAP.setdefault(_grp, []).append(
+                    (_gm, _venus_int(_row[2]), _venus_int(_row[3])))
+        print(f"[*] 已加载维纳斯图板: {len(VENUS_REWARD_MAP)} 组奖励 (VenusBoard_PanelReward)")
+    except Exception as _vbr_ex:
+        print(f"[!] 维纳斯奖励加载失败: {_vbr_ex}")
+
+_vb_rel_path = os.path.join(CSV_MASTER, "VenusBoard_ReleaseGirls.csv")
+if os.path.exists(_vb_rel_path):
+    import csv as _vbrlcsv
+    try:
+        with open(_vb_rel_path, "r", encoding="utf-8-sig") as _vbrl_f:
+            for _row in _vbrlcsv.reader(_vbrl_f):
+                if len(_row) >= 3 and _row[1].strip().isdigit():
+                    VENUS_RELEASE_GIRLS.add(_venus_int(_row[1]))
+    except Exception:
+        pass
+
+# 2026-11-13: 亲爱度报酬表 (Girl_Affectionup_Reward.csv, 339 级全女孩共用)。
+#   列: 1级号 2等级 3道具1 4数量1 5道具2序号 6数量2 7潜力 8剧情序号 9称号序号 10姿势 11语音
+#   真服 POST /v1/affection_reward 响应 4 个字段(抓包 server_response_db 第2份):
+#     affection_levelup_reward_list[]  每级一条, 弹窗"获得奖励"就渲染这个 ← 之前完全没返回 → 空白
+#     girl_status_progress             四维 before/gain/after
+#     affection_level_reward_list      accepted_level 推进
+#     girl_list                        该女孩最新数据(只有 1 条)
+#   序号列(5/8/9/10)不是道具ID, 要按女孩从 Girl_Affectionup_{Item,Cmu,Deg,Pose}_Table 里查真ID。
+AFFECTION_REWARD_TABLE = {}      # 兼容旧调用: lv -> [(item_mid, count), ...]
+AFFECTION_LEVEL_ROWS = {}        # lv -> {"item1","count1","item2","count2","pot","ep","deg","pose","voice"}
+AFFECTION_EXTRA = {}             # girl_mid -> {"item":[..], "cmu":[..], "deg":[..], "pose":[..]}
+
+def _aff_int(s):
+    s = (s or "").strip()
+    return int(s) if s.lstrip("-").isdigit() else 0
+
+_ar_path = os.path.join(CSV_MASTER, "Girl_Affectionup_Reward.csv")
+import csv as _arcsv
+if os.path.exists(_ar_path):
+    try:
+        with open(_ar_path, "r", encoding="utf-8-sig") as _ar_f:
+            for _row in _arcsv.reader(_ar_f):
+                if len(_row) < 4 or not _row[1].strip().isdigit():
+                    continue
+                _row = _row + [""] * (11 - len(_row))
+                _ar_lv = int(_row[1])
+                _rw = {
+                    "item1": _aff_int(_row[2]), "count1": _aff_int(_row[3]),
+                    "item2": _aff_int(_row[4]), "count2": _aff_int(_row[5]),
+                    "pot": _aff_int(_row[6]), "ep": _aff_int(_row[7]),
+                    "deg": _aff_int(_row[8]), "pose": _aff_int(_row[9]),
+                    "voice": _aff_int(_row[10]),
+                }
+                if not any(_rw.values()):
+                    continue
+                AFFECTION_LEVEL_ROWS[_ar_lv] = _rw
+                _ar_prs = []
+                if _rw["item1"] and _rw["count1"]:
+                    _ar_prs.append((_rw["item1"], _rw["count1"]))
+                if _rw["voice"]:
+                    _ar_prs.append((_rw["voice"], 1))
+                if _ar_prs:
+                    AFFECTION_REWARD_TABLE[_ar_lv] = _ar_prs
+    except Exception as _ar_ex:
+        print(f"[!] Girl_Affectionup_Reward.csv 读取失败: {_ar_ex}")
+
+# 女孩专属的序号→真ID 映射表 (首列均为 girl_mid, 其余列为该索引对应的真实ID)
+for _tbl_key, _tbl_name in (("cmu", "Girl_Affectionup_Cmu_Table.csv"),
+                            ("deg", "Girl_Affectionup_Deg_Table.csv"),
+                            ("item", "Girl_Affectionup_Item_Table.csv"),
+                            ("pose", "Girl_Affectionup_Pose_Table.csv")):
+    _tbl_path = os.path.join(CSV_MASTER, _tbl_name)
+    if not os.path.exists(_tbl_path):
+        continue
+    try:
+        with open(_tbl_path, "r", encoding="utf-8-sig") as _tf:
+            for _row in _arcsv.reader(_tf):
+                if not _row or not _row[0].strip().isdigit():
+                    continue
+                _gm = int(_row[0])
+                AFFECTION_EXTRA.setdefault(_gm, {})[_tbl_key] = [
+                    _aff_int(x) for x in _row[1:]
+                ]
+    except Exception as _ar_ex2:
+        print(f"[!] {_tbl_name} 读取失败: {_ar_ex2}")
+
+def _aff_pick(girl_mid, kind, idx):
+    """按序号取该女孩的真实ID (idx 从 1 开始, 0 表示无)"""
+    if not idx:
+        return 0
+    arr = (AFFECTION_EXTRA.get(int(girl_mid)) or {}).get(kind) or []
+    return arr[idx - 1] if 0 < idx <= len(arr) else 0
+
+def affection_entry(girl_mid, level, rw=None):
+    """构造 affection_levelup_reward_list 的一条 (字段名与真服抓包完全一致)
+
+    说明: 剧情序号按 Girl_Affectionup_Cmu_Table 查真ID(已核对 EpisodeList 存在);
+    称号序号(Deg_Table 的 984/1002…)在 Honor.csv(0~747) 里查不到对应记录,
+    为避免客户端解析到不存在的称号而整条渲染失败, 这里置 0 不发放。
+    没有任何可解析奖励的等级直接返回 None (不产生空行)。
+    """
+    rw = rw or AFFECTION_LEVEL_ROWS.get(level)
+    if not rw:
+        return None
+    _ep = _aff_pick(girl_mid, "cmu", rw["ep"])
+    _im2 = _aff_pick(girl_mid, "item", rw["item2"])
+    _pose = _aff_pick(girl_mid, "pose", rw["pose"])
+    if not any((rw["item1"], _im2, _ep, _pose, rw["voice"])):
+        return None
+    return {
+        "content_mid": 1,
+        "level": level,
+        "girl_mid": int(girl_mid),
+        "item_mid1": rw["item1"],
+        "item_count1": rw["count1"] if rw["item1"] else 0,
+        "item_mid2": _im2,
+        "item_count2": rw["count2"] if _im2 else 0,
+        "potential_mid": 0,
+        "episode_mid": _ep,
+        "honor_mid": 0,
+        "pose_mid": _pose,
+        "voice_mid": rw["voice"],
+    }
+
+def affection_entry_blank(girl_mid, level):
+    """无奖励等级也占一行 (保证 levelup 最后一行 level == accepted_level)"""
+    return {
+        "content_mid": 1,
+        "level": level,
+        "girl_mid": int(girl_mid),
+        "item_mid1": 0, "item_count1": 0,
+        "item_mid2": 0, "item_count2": 0,
+        "potential_mid": 0, "episode_mid": 0, "honor_mid": 0,
+        "pose_mid": 0, "voice_mid": 0,
+    }
 
 # 2026-09-17: 回忆菜单 episode 全集 (EpisodeList.csv col1=episode_mid)
 # 客户端 GET /v1/owner/episode 用 episode_list 判"解锁"(在列表=已解锁), count>=1 判"已读"(count=0亮"新").
@@ -832,9 +1166,92 @@ def _get_gacha_pool(gm, step=1):
     _GACHA_POOL_CACHE[_ck] = pool
     return pool
 
+# ===== 2026-11-12 卡池分组：客户端按 banner 把多个 gacha_mid 叠成一个卡池 =====
+# Gacha.csv 的 col3 是 UI banner 资源 ID(GachaPopAndTexture.csv 首列 pop_id)。
+# 同一 pop_id 下的 mid 是同一卡池的不同抽法(单抽/十连/用券)，必须共用一份爆率与保底。
+GACHA_GROUPS = {"groups": [], "mid_to_group": {}}
+_GROUPS_PATH = os.path.join(TOOL, "gacha_groups.json")
+try:
+    if os.path.exists(_GROUPS_PATH):
+        with open(_GROUPS_PATH, encoding="utf-8") as _ggf:
+            GACHA_GROUPS = json.load(_ggf)
+        print(f"[*] 卡池分组加载: {len(GACHA_GROUPS.get('groups', []))} 组, "
+              f"可见 {GACHA_GROUPS.get('visible_group_count', 0)} 组")
+except Exception as _gge:
+    print(f"[gacha_groups] 加载失败: {_gge}")
+
+# 组表缺失时从 Gacha.csv 现场兜底生成，保证任何部署都能按组工作
+if not GACHA_GROUPS.get("mid_to_group"):
+    import csv as _ggcsv
+    _gg_path = os.path.join(CSV_MASTER, "Gacha.csv")
+    _gg_pop = {}
+    if os.path.exists(_gg_path):
+        with open(_gg_path, "r", encoding="utf-8-sig") as _ggf2:
+            for _gg_r in _ggcsv.reader(_ggf2):
+                if len(_gg_r) > 3 and _gg_r[0].isdigit():
+                    try:
+                        _gg_pop[int(_gg_r[0])] = int(_gg_r[3])
+                    except ValueError:
+                        pass
+    _gg_buckets = {}
+    for _gg_m in sorted(_gg_pop):
+        _gg_p = _gg_pop[_gg_m]
+        _gg_id = ("p" + str(_gg_p)) if 0 < _gg_p <= 541 else ("m" + str(_gg_m))
+        _gg_buckets.setdefault(_gg_id, []).append(_gg_m)
+    GACHA_GROUPS = {
+        "groups": [{"group_id": k, "mids": v, "has_banner": k.startswith("p"),
+                    "tabs": ["limited"]} for k, v in _gg_buckets.items()],
+        "mid_to_group": {str(m): k for k, v in _gg_buckets.items() for m in v},
+    }
+    print(f"[*] 卡池分组兜底生成: {len(GACHA_GROUPS['groups'])} 组")
+
+GACHA_GROUP_OF = {int(k): v for k, v in GACHA_GROUPS.get("mid_to_group", {}).items()}
+GACHA_GROUP_BY_ID = {g.get("group_id"): g for g in GACHA_GROUPS.get("groups", [])}
+
+
+def _gacha_group_of(gm):
+    """gacha_mid -> 卡池组 id；未分组返回 None。"""
+    if gm is None:
+        return None
+    try:
+        return GACHA_GROUP_OF.get(int(gm))
+    except (TypeError, ValueError):
+        return None
+
+
+def _gacha_pity_key(gm):
+    """保底计数按组累计：同一 banner 的不同抽法共享一份保底。"""
+    gid = _gacha_group_of(gm)
+    return ("g:" + gid) if gid else str(gm)
+
+
+def _gacha_effective_pool(gm, step, pool):
+    """补齐缺失稀有度：组内其它抽法 -> 全局稀有度池。
+    纯 R 抽法原本会把 GM 设的 SSR/SR 权重整段丢掉，爆率控制看起来完全失效。"""
+    out = {r: list(v) for r, v in pool.items()}
+    gid = _gacha_group_of(gm)
+    for rar in ("SSR", "SR", "R"):
+        if out.get(rar):
+            continue
+        fill = []
+        if gid:
+            for m in GACHA_GROUP_BY_ID.get(gid, {}).get("mids", []):
+                if m == gm:
+                    continue
+                other = _get_gacha_pool(m, step)
+                if other.get(rar):
+                    fill = list(other[rar])
+                    break
+        if not fill:
+            fill = list(_GACHA_GLOBAL_RARITY.get(rar, []))
+        if fill:
+            out[rar] = fill
+    return out
+
+
 def _get_gacha_config(gm=None):
-    """解析扭蛋配置. 优先级(低→高): 文件默认 → STATE全局 → 文件按卡池 → STATE按卡池.
-    gm=None 返回全局默认(文件+STATE合并)."""
+    """解析扭蛋配置. 优先级(低→高): 文件默认 → STATE全局 → 文件按卡池
+    → STATE按卡池 → STATE按卡池组(最高，GM 按 banner 设的爆率要覆盖所有抽法)."""
     # 1. 全局: 文件默认 + STATE 全局 (STATE 覆盖文件)
     _cfg = dict(_GACHA_CONFIG_FILE.get("defaults", {}))
     _sc = STATE.get("gacha_config", {})
@@ -843,6 +1260,9 @@ def _get_gacha_config(gm=None):
     if gm is not None:
         _cfg.update(_GACHA_CONFIG_FILE.get("pool_overrides", {}).get(str(gm), {}))
         _cfg.update(_sc.get("pool_overrides", {}).get(str(gm), {}))
+        _gid = _gacha_group_of(gm)
+        if _gid:
+            _cfg.update(STATE.get("gacha_group_config", {}).get(_gid, {}))
     # 填充默认值
     _cfg.setdefault("rarity_weights", dict(_RARITY_DEFAULT))
     _cfg.setdefault("use_csv_rarity", False)
@@ -855,13 +1275,16 @@ def _get_gacha_config(gm=None):
     _cfg.setdefault("max_step_bonus", "none")
     _cfg.setdefault("ssr_auto_lock", False)
     _cfg.setdefault("item_weights", {})
+    _cfg.setdefault("use_group_fill", True)  # 纯 R 抽法是否补齐 SSR/SR（GM 爆率生效的前提）
     return _cfg
 
 def _random_gacha_items(gm, count, step=1):
     """从 (gacha_mid, step) 卡池按配置爆率+保底逻辑随机选 count 个 item_mid.
     保底: 硬保底(N抽必出SSR) + 软保底(接近N抽SSR权重递增). per-pool 计数持久化到 STATE."""
-    pool = _get_gacha_pool(gm, step)
     cfg = _get_gacha_config(gm)
+    _raw_pool = _get_gacha_pool(gm, step)
+    # GM 可关闭补齐，保留卡池原本的纯 R 行为
+    pool = _gacha_effective_pool(gm, step, _raw_pool) if cfg.get("use_group_fill", True) else _raw_pool
     import random as _grand
 
     # 无奖池数据 → 回退常驻池
@@ -872,7 +1295,10 @@ def _random_gacha_items(gm, count, step=1):
 
     # 保底状态 (per-pool)
     _pity = STATE.setdefault("gacha_pity", {})
-    _pk = str(gm)
+    _pk = _gacha_pity_key(gm)
+    # 兼容旧存档：按 mid 记的保底存在而组记录尚未建立时，平移到组 key
+    if _pk not in _pity and str(gm) in _pity:
+        _pity[_pk] = dict(_pity[str(gm)])
     _ps = _pity.get(_pk, {})
     _dss = _ps.get("draws_since_ssr", 0)
 
@@ -1160,6 +1586,7 @@ def _load_state():
           "gacha_draw_counts": {},  # 2026-09-13 阶段4: 抽卡进度 (gacha_mid -> 累计抽卡次数, 叠加到 gacha/list)
           "gacha_pity": {},        # 2026-09-14 方案C: 保底计数 (gacha_mid -> {draws_since_ssr, total_draws, current_step})
           "gacha_config": {},      # 2026-09-14 方案C: 运行时配置覆盖 (GM 修改, 优先级高于文件)
+          "gacha_group_config": {},  # 2026-11-12: 按卡池组(banner)的爆率覆盖, 优先级最高
           "private_items": [],    # 2026-09-14: 私人套装物品列表 (girl_mid+item_mid, 抽卡获得)
           "checked_at": {            # 2026-09-14: 红点已读时间戳 (像私服版, 各功能查看时更新; 初始=私服版真实值)
               "owner_id": OWNER_ID, "news_checked_at": "2019-03-28 11:10:39",
@@ -1171,18 +1598,18 @@ def _load_state():
               "subscription_checked_at": "2026-09-03 11:12:02", "lesson2onsen_exchanged_item_at": "2023-05-24 05:36:57",
               "comeback_login_bonus_expire_at": None, "compensation_create_girl_append_item_at": "2026-01-09 10:12:01",
               "created_at": "2019-03-28 11:10:39", "updated_at": "2026-09-12 14:25:24"},
-          "casino_chip": {          # 2026-09-14: 赌场筹码 (赌场 play 时更新)
-              "owner_id": OWNER_ID, "chip_normal": 0, "chip_gold": 0,
-              "limit_chip_gold": 0, "gold_chip_mid": 73, "dealer_chip_count": 0,
+          "casino_chip": {          # 2026-09-14: 赌场筹码 (像私服版, 初始私服版真实值7220/148; 赌场play时更新)
+              "owner_id": OWNER_ID, "chip_normal": 7220, "chip_gold": 148,
+              "limit_chip_gold": 148, "gold_chip_mid": 73, "dealer_chip_count": 0,
               "created_at": "2021-04-04 03:07:30", "updated_at": "2026-09-13 11:17:53"},
-          "casino_game": [   # 2026-09-14: 赌场统计 (赌场 play 时累加)
-              {"game": 2, "play_count": 0, "win_count_total": 0, "win_count_series": 0, "win_count_series_max": 0},
-              {"game": 1, "play_count": 0, "win_count_total": 0, "win_count_series": 0, "win_count_series_max": 0}],
+          "casino_game": [   # 2026-09-14: 赌场统计 (像私服版, 初始真实值; 赌场play时play_count++/win_count++)
+              {"game": 2, "play_count": 176, "win_count_total": 73, "win_count_series": 0, "win_count_series_max": 7},
+              {"game": 1, "play_count": 3, "win_count_total": 1, "win_count_series": 1, "win_count_series_max": 1}],
           # 2026-09-15: 温泉/送礼/岛主房间工作 动态持久化 (抓包私服版确认的端点+请求体)
           "onsen": {                       # 温泉: 槽位女孩/领奖计数/gauge/品质/女孩经验
               "slots": [{"slot_id": 0, "girl_mid": 15}, {"slot_id": 1, "girl_mid": 16},
                         {"slot_id": 2, "girl_mid": 4}, {"slot_id": 3, "girl_mid": 3}],
-              "reward_count": 0, "gauge": 0, "quality_mid": 1, "girl_exp": {}},
+              "reward_count": 91, "gauge": 0, "quality_mid": 1, "girl_exp": {}},
           "room_request": {"current": None, "log": [], "girls": None},  # 岛主房间工作: 当前/历史/选中对象
           "friendly_value": [],             # 女孩间好感度 [{girl_mid,friendly_girl_mid,value,level,unlock_count}]
           "girl_exp": {},                  # 送礼/温泉累计的女孩经验 (girl_mid -> experience)
@@ -1198,6 +1625,19 @@ def _load_state():
             st = loaded
     except Exception as e:
         print(f"[state] 加载失败: {e}")
+    # 2026-11-11: 启动自愈 — 旧版本切换看板娘只改了 main_girl_mid、没同步 owner_room,
+    # 且没有 ID 合法性校验, 坏存档会在加载后立刻把客户端带进白屏。这里对齐两者并拒绝非法 ID。
+    if GIRL_MASTER_MAP and st.get("main_girl_mid") not in GIRL_MASTER_MAP:
+        st["main_girl_mid"] = 3
+    _or0 = st.get("owner_room")
+    if isinstance(_or0, dict):
+        _or0["main_girl_mid"] = st.get("main_girl_mid", 3)
+        # 2026-11-11b: 副女孩同样校验, 并补齐缺失键 (历史脏存档可能残留非法 sub_girl_mid)
+        if GIRL_MASTER_MAP and _or0.get("sub_girl_mid") not in GIRL_MASTER_MAP:
+            _or0["sub_girl_mid"] = 15
+        _or0.setdefault("owner_id", OWNER_ID)
+        _or0.setdefault("sub_girl_mid", 15)
+        _or0.setdefault("set_no", 0)
     return st
 
 _STATE_DIRTY = False  # IO优化: 去抖标记, _save_state 只设dirty, 后台线程定时写盘
@@ -1295,6 +1735,81 @@ threading.Thread(target=_state_flush_loop, daemon=True).start()
 
 STATE = _load_state()
 
+# 2026-11-12: GM 会话开关 (托盘「启动GM / 关闭GM」用)。
+# 关闭 = 断开 GM 面板: 页面保留, 显示「GM 已关闭」并停止交互; 不关闭浏览器窗口
+# (Chrome 单进程多标签, 关窗会连带用户自己的标签页一起关掉)。
+# 仅内存态, 不写盘 —— 服务器重启后自动回到开启。
+GM_SESSION = {"active": True}
+
+# 2026-11-12: GM 专属「名称修正表」。
+# 背景: 官方 item_mid / 卡池 banner 的真实名称映射表缺失或难找, 改为人工修正。
+# 原则: 只写这张 GM 自己的 CSV, **绝不改动 csv_master 原始主数据**;
+#       删掉该文件即完全还原, 对游戏内数据零影响 (纯展示层)。
+# 文件: GM/gm_names.csv   列: kind,key,name,original,updated_at
+#   kind=item  → key = item_mid
+#   kind=group → key = 卡池组 id (如 p6)
+GM_NAMES_FILE = os.path.join(TOOL, "GM", "gm_names.csv")
+GM_NAMES_HEADER = ["kind", "key", "name", "original", "updated_at"]
+_GM_NAMES_LOCK = threading.RLock()
+
+def _gm_names_read():
+    """读取名称修正表 → {"items": {mid: 名称}, "groups": {组id: 名称}, "types": {分类id: 名称}}。
+    文件很小, 每次现读, 用户在 Excel 里手改后刷新页面即生效。"""
+    items, groups, types = {}, {}, {}
+    if not os.path.exists(GM_NAMES_FILE):
+        return {"items": items, "groups": groups, "types": types}
+    with _GM_NAMES_LOCK:
+        try:
+            with open(GM_NAMES_FILE, encoding="utf-8-sig", newline="") as f:
+                for row in csv.DictReader(f):
+                    kind = (row.get("kind") or "").strip().lower()
+                    key = (row.get("key") or "").strip()
+                    name = (row.get("name") or "").strip()
+                    if not key or not name:
+                        continue
+                    if kind == "item":
+                        items[key] = name
+                    elif kind == "group":
+                        groups[key] = name
+                    elif kind == "type":
+                        types[key] = name
+        except Exception as e:
+            print("[!] 读取 GM 名称修正表失败:", e)
+    return {"items": items, "groups": groups, "types": types}
+
+def _gm_names_write(kind, key, name, original=""):
+    """写入/更新/删除一条修正 (name 为空 = 删除该条), 原子替换, 保留其它行。"""
+    kind = (kind or "").strip().lower()
+    key = (key or "").strip()
+    if kind not in ("item", "group", "type") or not key:
+        raise ValueError("kind 必须是 item/group/type, key 不能为空")
+    name = (name or "").strip()
+    with _GM_NAMES_LOCK:
+        rows = []
+        if os.path.exists(GM_NAMES_FILE):
+            try:
+                with open(GM_NAMES_FILE, encoding="utf-8-sig", newline="") as f:
+                    rows = [r for r in csv.DictReader(f)]
+            except Exception:
+                rows = []
+        rows = [r for r in rows
+                if not ((r.get("kind") or "").strip().lower() == kind
+                        and (r.get("key") or "").strip() == key)]
+        if name:
+            rows.append({"kind": kind, "key": key, "name": name[:60],
+                         "original": (original or "").strip()[:60],
+                         "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        rows.sort(key=lambda r: ((r.get("kind") or ""), (r.get("key") or "")))
+        os.makedirs(os.path.dirname(GM_NAMES_FILE), exist_ok=True)
+        tmp = GM_NAMES_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=GM_NAMES_HEADER, extrasaction="ignore")
+            w.writeheader()
+            for r in rows:
+                w.writerow({k: r.get(k, "") for k in GM_NAMES_HEADER})
+        os.replace(tmp, GM_NAMES_FILE)
+    return _gm_names_read()
+
 # 2026-11-08: 启动时清洗历史存档里的非法替补女孩 ID。
 # 客户端用 65535/0xffff 表示"无替补", 旧版曾把它原样存进 quest_team 并回显,
 # 客户端按该 ID 查女孩对象返回 null → DOAX_VV.exe+0x240dd1b 空指针崩溃。
@@ -1312,6 +1827,27 @@ if isinstance(_qt_boot, dict):
 _ic_raw = STATE.get("item_counts", {})
 if _ic_raw:
     STATE["item_counts"] = {int(k): v for k, v in _ic_raw.items()}
+
+# 2026-11-12: 邮箱自愈 —— 未领取的自定义邮件若被错误标记为已领取, 启动时解除。
+# 根因(GM 邮件发出后游戏邮箱看不到): 旧版 id 用 900000001+len(custom_mails) 分配,
+# 领取过的旧 id 残留在 giftbox_claimed 里, 新邮件复用同一 id -> 一发出就被当"已领"过滤。
+# 新分配逻辑已改成永不复用, 这里再兜底修掉历史脏数据。
+try:
+    _cm_boot = STATE.get("custom_mails") or []
+    _cl_boot = STATE.get("giftbox_claimed")
+    if _cm_boot and isinstance(_cl_boot, list):
+        _pending_ids = {int(m.get("id")) for m in _cm_boot
+                        if isinstance(m, dict) and isinstance(m.get("id"), int)
+                        and not m.get("accepted_at")}
+        if _pending_ids:
+            _before_n = len(_cl_boot)
+            STATE["giftbox_claimed"] = [c for c in _cl_boot if c not in _pending_ids]
+            _healed_n = _before_n - len(STATE["giftbox_claimed"])
+            if _healed_n:
+                _save_state()
+                print(f"[*] 邮箱自愈: 解除 {_healed_n} 条未领自定义邮件的错误已领取标记")
+except Exception as _e_heal:
+    print("[!] 邮箱自愈跳过:", _e_heal)
 
 # 2026-09-12: 从 SERVER_DB 初始化 wallet 和 item_counts (首次启动时)
 _eps_init = SERVER_DB.get("endpoints", {})
@@ -2336,6 +2872,13 @@ _GIRL_FIELD_MAP = {
     "ring_equipment_item_id": "ring_item_mid",
 }
 
+# 2026-11-13 六次修复: 亲爱度等级封顶 —— 维纳斯面板「亲爱度报酬」页客户端实测只认
+#   LV.300 (Girl_Affection_Level.csv 曲线2 累计到 300 级 = 161,904,000, 逐级实算)。
+#   之前发 339 级 + accepted_level=339, 超过客户端可见等级被整包丢弃,
+#   表现为「领取」红点常亮、重复领取弹窗空白。
+_AFFECTION_LEVEL_CAP = 300
+_AFFECTION_POINT_AT_CAP = 161904000
+
 def apply_girl_state(girl_obj):
     """把STATE里该女孩的装备叠加到 girl 对象上 (equipment_id -> item_mid 字段映射).
     2026-09-11 简化: 移除归属校验(_validate_equipment_owner 已改为全放行, 校验为空操作)."""
@@ -2362,10 +2905,20 @@ def apply_girl_state(girl_obj):
         girl_obj["visual_state_flag_b"] = 1
     girl_obj["level"] = 100
     girl_obj["experience"] = 999999
-    girl_obj["affection_level"] = 339
-    girl_obj["affection_point"] = 999999
+    # 2026-11-13 六次修复: 亲爱度成长曲线必须用 Girl_Affection_Level.csv 的第2条曲线
+    #   (「40LVまで必要親愛度上昇」, need(1)=300)。真服抓包实证: 女孩 LV.2 时
+    #   affection_point=300 = cum(2)。第1条(テスト用=测试用, 100n)算出 cum(2)=100
+    #   → 客户端从点数推导的等级与字段值矛盾。
+    #   曲线2 累计到 300 级 = 161,904,000 (CSV 逐级累加实算)。
+    #   同时维纳斯面板「亲爱度报酬」页客户端实测只显示 LV.300(截图, 全女孩一致),
+    #   报酬行只列到这个等级; accepted_level 超过它会被客户端整包丢弃 → 红点常亮、
+    #   重复领取空白。因此等级/已领等级统一封顶 300, 与点数三者自洽。
+    girl_obj["affection_level"] = _AFFECTION_LEVEL_CAP
+    girl_obj["affection_point"] = _AFFECTION_POINT_AT_CAP
     girl_obj["partner_count"] = 999
-    girl_obj["venus_memory"] = 999
+    # 2026-11-13: 维纳斯图板「开放」要消耗维纳斯记忆, 全解锁约 171 万/人 (VenusBoard_Panel 实算),
+    #   写死 999 会被客户端本地判定"记忆不足"拦下, 请求根本不发。
+    girl_obj["venus_memory"] = 9999999
     girl_obj["girly"] = 999
     return girl_obj
 
@@ -2474,8 +3027,78 @@ def _validate_equipment_owner(girl_mid, item_mid, owner_map):
         return True
     return True
 
+def _build_girl_from_master(mid):
+    """无抓包快照的女孩: 用 girl_master 主数据构造一个"自洽"的 girl 对象 (46 字段).
+
+    2026-11-11 修复白屏/闪退: 旧兜底是"拿别的女孩对象改 girl_mid", 会残留原女孩的
+    hair_item_mid / ring / accessory / visual_state / *_lock / 好感度等字段。
+    于是客户端收到 (girl_mid=28, hair_item_mid=366) 这种不存在的组合,
+    按本地模型资源表查不到对应发型模型 -> 白屏卡住 -> APPCRASH。
+    抓包池只覆盖 20 个女孩 (2..16/18/21/22/23/26), main_girl 池只有 6 个,
+    其余 12 个 (17/19/20/24/25/27/28/29/30/31/32/33) 全走这条兜底,
+    正好对应"有些看板娘正常、有些一选就崩"。
+    这里只借用字段结构, 身份相关字段一律重置为该女孩自己的主数据值。
+    """
+    _gmm = GIRL_MASTER_MAP.get(mid)
+    if not _gmm:
+        return None
+    import copy as _copy_gm
+    _tmpl = None
+    for _resp in SERVER_DB.get("endpoints", {}).get("/v1/girl", []):
+        _gl = _resp.get("girl_list") if isinstance(_resp, dict) else None
+        if _gl:
+            _tmpl = _gl[0]
+            break
+    if _tmpl is None:
+        _pool = SERVER_DB.get("main_girl_by_mid", {})
+        if _pool:
+            _tmpl = list(_pool.values())[0].get("girl", {})
+    if not isinstance(_tmpl, dict) or not _tmpl:
+        return None
+    g = _copy_gm.deepcopy(_tmpl)
+    # --- 身份 ---
+    g["owner_id"] = OWNER_ID
+    g["girl_mid"] = mid
+    # --- 穿戴: 一律用该女孩自己的主数据默认, 不继承模板女孩的任何装备 ---
+    g["swimsuit_item_mid"] = _gmm.get("swimsuit", 0)
+    g["hair_item_mid"] = _gmm.get("hair", 0)
+    for _k in ("ring_item_mid", "addition_accessory_item_mid",
+               "accessory_head_item_mid", "accessory_face_item_mid", "accessory_arm_item_mid"):
+        g[_k] = 0
+    # --- 视觉/身体状态: 全部归零, 客户端不会去查不存在的模型变体 ---
+    for _k in ("visual_state_flag_a", "visual_state_flag_b", "visual_state_flag_c",
+               "visual_state_flag_d", "sunburn", "wet",
+               "hip_swing", "hip_press", "bust_swing", "bust_press",
+               "hip_swing_lock", "hip_press_lock", "bust_swing_lock", "bust_press_lock",
+               "skin_color", "nail_color", "display_coordinate", "panel_experience"):
+        g[_k] = 0
+    # --- 能力值: 用 girl_master, 不加成 ---
+    g["power"] = _gmm.get("power", 1000)
+    g["technic"] = _gmm.get("technic", 800)
+    g["stamina"] = _gmm.get("stamina", 1000)
+    g["appeal"] = _gmm.get("appeal", 20)
+    for _k in ("additional_power", "additional_technic", "additional_stamina",
+               "additional_appeal", "appeal_up"):
+        g[_k] = 0
+    g["mood"] = 0
+    g["experience"] = 0
+    g["level"] = 1
+    g["affection_level"] = 1
+    g["affection_point"] = 0
+    g["venus_memory"] = 0
+    g["girly"] = 0
+    g["partner_count"] = 0
+    g["created_at"] = "2019-03-28 11:15:12"
+    g["updated_at"] = "2019-03-28 11:15:12"
+    return g
+
+
 def girl_obj_from_db(mid):
-    """从 /v1/girl 响应池找某女孩的完整对象 (46字段), 找不到返回None"""
+    """取某女孩的完整对象 (46字段): 抓包快照优先, 缺失则从 girl_master 自洽构造.
+
+    2026-11-11: 不再对缺失女孩返回 None, 否则调用方会退化成"改 mid 的混血对象"。
+    非法 mid (不在 GIRL_MASTER_MAP) 仍返回 None。
+    """
     eps = SERVER_DB.get("endpoints", {})
     for resp in eps.get("/v1/girl", []):
         for g in resp.get("girl_list", []):
@@ -2485,7 +3108,226 @@ def girl_obj_from_db(mid):
     pool = SERVER_DB.get("main_girl_by_mid", {})
     if str(mid) in pool:
         return dict(pool[str(mid)].get("girl", {}))
-    return None
+    return _build_girl_from_master(mid)
+
+# ===== 2026-11-13: 维纳斯图板 (Venus Board) 状态 / 发奖 =====
+# 客户端协议: GET status / GET panel / POST update/status / POST open / GET|POST open/list
+# 面板解锁状态按女孩分别保存在 STATE["venus_board"]["opened"][girl] = ["content:panel_id", ...]
+_VENUS_ROWS_CACHE = {}
+
+def venus_rows_for(girl_mid):
+    """该女孩可用的面板行 (girl_mid=-1 为全女孩共用, 其余为专属)"""
+    g = int(girl_mid)
+    rows = _VENUS_ROWS_CACHE.get(g)
+    if rows is None:
+        rows = [r for r in VENUS_PANEL_ROWS if r["girl_mid"] in (-1, g)]
+        _VENUS_ROWS_CACHE[g] = rows
+    return rows
+
+def venus_panel_key(row):
+    return "%d:%d" % (row["content_mid"], row["panel_id"])
+
+def venus_state():
+    st = STATE.get("venus_board")
+    if not isinstance(st, dict):
+        st = {}
+        STATE["venus_board"] = st
+    if not isinstance(st.get("opened"), dict):
+        st["opened"] = {}
+    if not isinstance(st.get("seen"), dict):
+        st["seen"] = {}
+    if not isinstance(st.get("granted"), dict):
+        st["granted"] = {}   # 已发过奖励的面板 (重置进度也不清, 防重复领取)
+    st.setdefault("current_girl", 0)
+    st.setdefault("maxed_at", None)
+    st.setdefault("rewards_granted", False)
+    return st
+
+def venus_rewards_for(row, girl_mid):
+    """某面板对该女孩的奖励 [(item_mid, count)]; 奖励组内 girl=-1 共用, 其余专属"""
+    out = []
+    for _gm, _im, _cnt in VENUS_REWARD_MAP.get(row.get("reward_group", 0), []):
+        if _gm in (-1, int(girl_mid)):
+            out.append((_im, _cnt))
+    return out
+
+def venus_grant_items(pairs):
+    """把奖励写入背包/衣橱。
+    - 35008(剧情 episode_mid) / 25001(扭蛋 gacha_mid) 的 count 是 ID 不是数量 → 只回填 reward_list;
+    - 货币类型 → wallet; 普通消耗品 → item_counts; 装备 → equipment_inventory。
+    返回可直接放进 venus_board_reward_list 的条目。"""
+    wallet = STATE.setdefault("wallet", {})
+    granted = []
+    equip_jobs = []
+    for im, cnt in pairs:
+        try:
+            im = int(im); cnt = int(cnt)
+        except (TypeError, ValueError):
+            continue
+        if cnt <= 0:
+            continue
+        granted.append({"item_mid": im, "count": cnt})
+        if im in _VENUS_ID_LIKE_ITEMS:
+            continue
+        _t = ITEM_TYPE_MAP.get(im)
+        if _t is not None and _t in WALLET_CURRENCY_TYPES:
+            _wf = WALLET_CURRENCY_MAP.get(_t)
+            if _wf:
+                wallet[_wf] = int(wallet.get(_wf, 0) or 0) + cnt
+            else:
+                ic_add(im, cnt)   # type=35 活动货币无钱包字段 → 进背包
+        elif _t is not None:
+            ic_add(im, cnt)
+        else:
+            _et = EQUIP_TYPE_MAP.get(im)
+            if _et is None:
+                ic_add(im, cnt)
+            else:
+                equip_jobs.append((im, _et, cnt))
+    if equip_jobs:
+        _inv = STATE.setdefault("equipment_inventory", [])
+        _need = sum(n for _, _, n in equip_jobs)
+        _ids = _alloc_equip_ids(_need)
+        _k = 0
+        for _im, _et, _n in equip_jobs:
+            for _ in range(_n):
+                _inv.append({
+                    "id": _ids[_k], "item_mid": _im, "type": _et,
+                    "level": 1, "experience": 0, "girl_mid": 0, "favorite": 0,
+                    "in_lock": 0, "unlock_count": 0, "upgrade_count": 0,
+                    "combine_count": 0,
+                })
+                _k += 1
+    _save_state()
+    return granted
+
+def venus_unlock_all(grant=True):
+    """把所有女孩的图板解锁到最大 (可选同时发放全部面板奖励)。返回新增面板数。"""
+    if not VENUS_PANEL_ROWS:
+        return 0   # 缺 csv_master 时不做任何事, 也不要把 bootstrap_done 置真
+    st = venus_state()
+    new_rows = 0
+    pairs = {}
+    for _g in sorted(GIRL_MASTER_MAP):
+        _opened = set(st["opened"].get(str(_g)) or [])
+        for _r in venus_rows_for(_g):
+            _k = venus_panel_key(_r)
+            if _k in _opened:
+                continue
+            _opened.add(_k)
+            new_rows += 1
+            _gkey = "%d:%s" % (_g, _k)
+            if grant and _gkey not in st["granted"]:
+                for _im, _c in venus_rewards_for(_r, _g):
+                    pairs[_im] = pairs.get(_im, 0) + _c
+            st["granted"][_gkey] = 1
+        st["opened"][str(_g)] = sorted(_opened)
+        st["seen"][str(_g)] = len(_opened)
+    if grant and pairs:
+        venus_grant_items(sorted(pairs.items()))
+    st["maxed_at"] = server_now_str()
+    st["rewards_granted"] = bool(grant)
+    _save_state()
+    print(f"[venus] 图板全解锁: 新增 {new_rows} 块, 奖励 {len(pairs)} 种")
+    return new_rows
+
+def venus_open_one(girl_mid, content_mid, panel_id, grant=True):
+    """开一块面板; 已开过返回 newly=False 且不重复发奖。找不到返回 None。"""
+    _g = int(girl_mid)
+    _row = None
+    for _r in venus_rows_for(_g):
+        if int(panel_id) != _r["panel_id"]:
+            continue
+        if int(content_mid) not in (0, _r["content_mid"]):
+            continue
+        _row = _r
+        break
+    if _row is None:
+        return None
+    st = venus_state()
+    _opened = set(st["opened"].get(str(_g)) or [])
+    _k = venus_panel_key(_row)
+    _newly = _k not in _opened
+    _granted = []
+    if _newly:
+        _opened.add(_k)
+        st["opened"][str(_g)] = sorted(_opened)
+        _gkey = "%d:%s" % (_g, _k)
+        if grant and _gkey not in st["granted"]:
+            _pairs = venus_rewards_for(_row, _g)
+            if _pairs:
+                _granted = venus_grant_items(_pairs)
+        st["granted"][_gkey] = 1
+        _save_state()
+    return {"row": _row, "newly": _newly, "granted": _granted, "girl_mid": _g}
+
+def venus_panel_list():
+    """所有女孩已解锁面板 (给 /v1/venus_board/panel)"""
+    st = venus_state()
+    out = []
+    for _g in sorted(GIRL_MASTER_MAP):
+        for _k in st["opened"].get(str(_g), []) or []:
+            try:
+                _c, _p = str(_k).split(":", 1)
+                out.append({"content_mid": int(_c), "girl_mid": _g, "panel_id": int(_p)})
+            except (ValueError, TypeError):
+                continue
+    return out
+
+def venus_stats():
+    st = venus_state()
+    total = opened = 0
+    girls = []
+    for _g in sorted(GIRL_MASTER_MAP):
+        _rows = venus_rows_for(_g)
+        _op = set(st["opened"].get(str(_g)) or [])
+        _n = sum(1 for _r in _rows if venus_panel_key(_r) in _op)
+        total += len(_rows)
+        opened += _n
+        girls.append({"girl_mid": _g, "opened": _n, "total": len(_rows)})
+    return {
+        "total_panels": total,
+        "opened_panels": opened,
+        "maxed": (total > 0 and opened >= total),
+        "rewards_granted": bool(st.get("rewards_granted")),
+        "maxed_at": st.get("maxed_at"),
+        "girls": girls,
+    }
+
+def venus_progress_payload(girl_mid, rows, granted):
+    """open / open.list 的响应体 (字段名与真服抓包一致)"""
+    _g = int(girl_mid)
+    _girl = girl_obj_from_db(_g)
+    if _girl:
+        apply_girl_state(_girl)
+    _aff_before = int(_girl.get("affection_point", 0)) if _girl else 0
+    _aff_lv = int(_girl.get("affection_level", 1)) if _girl else 1
+    _mem = int(_girl.get("venus_memory", 0)) if _girl else 0
+    return {
+        "affection_progress": {
+            "affection_point_gain": 0,
+            "affection_point_before": _aff_before,
+            "affection_point_after": _aff_before,
+            "affection_level_gain": 0,
+            "affection_level_before": _aff_lv,
+            "affection_level_after": _aff_lv,
+        },
+        "venus_memory_progress": {
+            "venus_memory_before": _mem,
+            "venus_memory_use": 0,
+            "venus_memory_after": _mem,
+        },
+        "venus_board_reward_list": granted,
+        "venus_board_girl_panel_list": [
+            {"content_mid": _r["content_mid"], "girl_mid": _g, "panel_id": _r["panel_id"]}
+            for _r in rows
+        ],
+        "girl_list": [_girl] if _girl else [],
+        **({"episode_list": [
+            {"episode_mid": _it["count"], "count": 0, "created_at": server_now_str()}
+            for _it in granted if _it.get("item_mid") == 35008
+        ]} if any(_it.get("item_mid") == 35008 for _it in granted) else {}),
+    }
 
 def _inject_state_wallet(resp):
     """GM 实时生效: 响应中含 wallet/wallet_list 时, 用 STATE 钱包覆盖
@@ -2516,8 +3358,12 @@ def _inject_state_wallet(resp):
 #   本身每次内容一致, 不入表以避免改变返回类型。
 _STABLE_QUERY_ENDPOINTS = frozenset({
     # 任务
-    "/v1/mission/multiple", "/v1/mission/1", "/v1/mission/3", "/v1/mission/5",
-    "/v1/mission/6", "/v1/mission/7", "/v1/mission/reward_count",
+    # 2026-11-11b: 补 /2 /4 /5 —— 原来是"轮换", /5 在 28/29 条之间来回跳(多出一条任务),
+    #   /4 的 8 份抓包虽然 id 相同但时间/param1 不同, 每请求一次面板内容就变一次。
+    #   查询类端点必须固定快照, 与 /1 /3 /6 /7 /multiple 保持一致。
+    "/v1/mission/multiple", "/v1/mission/1", "/v1/mission/2", "/v1/mission/3",
+    "/v1/mission/4", "/v1/mission/5", "/v1/mission/6", "/v1/mission/7",
+    "/v1/mission/reward_count",
     # 好友 / 客串 / 资料
     "/v1/friendship", "/v1/friendship/received", "/v1/friendship/sent",
     "/v1/owner/profile/list", "/v1/quest/guest/list",
@@ -3003,6 +3849,12 @@ def _build_giftbox(path, req, method="POST"):
             base_mails = gl
             break
 
+    # 2026-11-12: GM 面板「重置邮箱」= 清空邮箱。除了清 custom_mails 与 claimed,
+    # 还要把抓包内置的 25 封也隐藏掉, 否则"清空"后邮箱里又会冒出这 25 封。
+    # 这是纯显示开关, 删 state 里的 giftbox_hide_builtin 即全部恢复。
+    if STATE.get("giftbox_hide_builtin"):
+        base_mails = []
+
     # 2026-09-13: 合并 GM 自定义邮件
     _custom = STATE.get("custom_mails", [])
     if _custom:
@@ -3016,41 +3868,17 @@ def _build_giftbox(path, req, method="POST"):
         """只返回未领取的邮件 (已领的从列表移除, 客户端据此显示待领取)"""
         return [_cp.deepcopy(m) for m in base_mails if m.get("id") not in claimed_set]
 
-    # ---- GET /v1/giftbox: 邮件列表 (只含未领取) ----
-    if path == "/v1/giftbox" and method == "GET":
-        return {"giftbox_list": unclaimed_mails()}
-
-    # ---- GET /v1/giftbox/count: 未领取邮件数 ----
-    if path == "/v1/giftbox/count":
-        unclaimed = sum(1 for m in base_mails if m.get("id") not in claimed_set)
-        return {"giftbox_received_count": unclaimed}
-
-    # ---- POST /v1/giftbox/fetch: 获取邮件 (游戏打开邮箱时, 只含未领取) ----
-    if path == "/v1/giftbox/fetch":
-        mails = unclaimed_mails()
-        rp = REAL_RESPONSES.get("/v1/giftbox/fetch", {})
-        ocal = rp.get("owner_checked_at_list", [])
-        return {"giftbox_fetch_list": mails, "owner_checked_at_list": ocal}
-
-    # ---- POST /v1/giftbox/accept: 领取邮件 -> 物品进背包/钱包 + 标记已领 ----
-    if path == "/v1/giftbox/accept":
-        # 请求体字段名 (实测): {"id_list":[...]} 或 {"giftbox_accept_id_list":[...]}
-        accept_ids = req.get("id_list") or req.get("giftbox_accept_id_list") or []
-        if isinstance(accept_ids, int):
-            accept_ids = [accept_ids]
-        accept_ids = list(accept_ids)  # 复制, 避免修改请求体原始列表
-        gid = req.get("giftbox_id")
-        if gid is not None:
-            accept_ids.append(gid)
-        accept_ids = [int(i) for i in accept_ids if i]
-
+    # ---- 领取处理 (accept / force_accepted 共用): 标记已领 + 发奖 ----
+    def _grant_mails(ids):
+        """对每封邮件: 已领/不存在 → not_accept; 否则标记已领 + 按物品类型发奖。
+        返回 (not_accept, history, item_consume)。"""
         not_accept = []
         history = []
         item_consume = []
         now_ts = "2026-09-06 09:00:00"
         wallet = STATE.setdefault("wallet", {})
         item_counts = STATE.setdefault("item_counts", {})
-        for mid in accept_ids:
+        for mid in ids:
             mail = next((m for m in base_mails if m.get("id") == mid), None)
             if mail is None:
                 not_accept.append(mid)
@@ -3098,8 +3926,40 @@ def _build_giftbox(path, req, method="POST"):
                     "in_lock": 0, "unlock_count": 0, "upgrade_count": 0, "combine_count": 0
                 })
         _save_state()
+        return not_accept, history, item_consume
+
+    # ---- GET /v1/giftbox: 邮件列表 (只含未领取) ----
+    if path == "/v1/giftbox" and method == "GET":
+        return {"giftbox_list": unclaimed_mails()}
+
+    # ---- GET /v1/giftbox/count: 未领取邮件数 ----
+    if path == "/v1/giftbox/count":
+        unclaimed = sum(1 for m in base_mails if m.get("id") not in claimed_set)
+        return {"giftbox_received_count": unclaimed}
+
+    # ---- POST /v1/giftbox/fetch: 获取邮件 (游戏打开邮箱时, 只含未领取) ----
+    if path == "/v1/giftbox/fetch":
+        mails = unclaimed_mails()
+        rp = REAL_RESPONSES.get("/v1/giftbox/fetch", {})
+        ocal = rp.get("owner_checked_at_list", [])
+        return {"giftbox_fetch_list": mails, "owner_checked_at_list": ocal}
+
+    # ---- POST /v1/giftbox/accept: 领取邮件 -> 物品进背包/钱包 + 标记已领 ----
+    if path == "/v1/giftbox/accept":
+        # 请求体字段名 (实测): {"id_list":[...]} 或 {"giftbox_accept_id_list":[...]}
+        accept_ids = req.get("id_list") or req.get("giftbox_accept_id_list") or []
+        if isinstance(accept_ids, int):
+            accept_ids = [accept_ids]
+        accept_ids = list(accept_ids)  # 复制, 避免修改请求体原始列表
+        gid = req.get("giftbox_id")
+        if gid is not None:
+            accept_ids.append(gid)
+        accept_ids = [int(i) for i in accept_ids if i]
+
+        not_accept, history, item_consume = _grant_mails(accept_ids)
 
         # 钱包: 返回当前 STATE 钱包 (而非静态模板)
+        wallet = STATE.get("wallet", {})
         wallet_out = [dict(wallet)] if wallet else []
         updated_mails = unclaimed_mails()
         return {
@@ -3110,6 +3970,19 @@ def _build_giftbox(path, req, method="POST"):
             "wallet_list": wallet_out,
             "item_consume_list": item_consume,
         }
+
+    # ---- POST /v1/giftbox/force_accepted: 客户端强制领取 (2026-11-12 新增) ----
+    # 实测: 客户端认为某封邮件必须强制领取时(如登录后/期限异常)会发本端点,
+    # 并期待邮件从列表消失。之前无处理 → 通用兜底 {"status":"success"} 但邮件仍在
+    # → 客户端无限重试 fetch/force_accepted (~30次/秒) → 邮箱界面卡死。
+    # 处理: 与 accept 相同(标记已领 + 正常发奖, 奖励不丢失), 返回 success。
+    if path == "/v1/giftbox/force_accepted":
+        fa_ids = req.get("id_list") or req.get("giftbox_accept_id_list") or []
+        if isinstance(fa_ids, int):
+            fa_ids = [fa_ids]
+        fa_ids = [int(i) for i in fa_ids if i]
+        _grant_mails(fa_ids)
+        return {"status": "success"}
 
     # ---- GET /v1/giftbox/history: 已领取历史 ----
     if path == "/v1/giftbox/history":
@@ -3134,10 +4007,37 @@ _ENDPOINT_CHECKED_MAP = {
     "/v1/subscription": "subscription_checked_at",
 }
 
-def _apply_state_overlay(path, method=None):
+# ---- 2026-11-12: 岛主资料 (岛主名 / 岛名 / 留言) 可编辑 ----
+# 背景: /v1/owner 与 /v1/owner/updatelogin 都是抓包静态快照, 客户端改完名字保存后
+# 服务端只回放旧值 -> 重进游戏就还原。实测客户端点了确认确实会发 PUT /v1/owner
+# (body 如 {"island_name":"x"} / {"name":"y"}), 所以这里两条路都打通:
+#   1) PUT /v1/owner 收到的字段写入 STATE["owner_profile"];
+#   2) 所有 owner 响应统一套 STATE["owner_profile"] 覆盖层。
+# GM 面板「存档状态总览 → 岛主资料」直接写同一份 STATE, 不依赖客户端门槛。
+OWNER_PROFILE_FIELDS = ("name", "island_name", "message")
+
+
+def _owner_profile():
+    op = STATE.get("owner_profile")
+    return op if isinstance(op, dict) else {}
+
+
+def _apply_owner_profile(o):
+    """把 STATE.owner_profile 的字段覆盖到单个 owner 对象上 (原地修改)"""
+    if not isinstance(o, dict):
+        return o
+    op = _owner_profile()
+    for _f in OWNER_PROFILE_FIELDS:
+        if _f in op and op[_f] not in (None, ""):
+            o[_f] = op[_f]
+    return o
+
+
+def _apply_state_overlay(path, method=None, req=None):
     """状态叠加: /v1/owner /v1/room /v1/girl 注入当前主女孩和装备状态。
     返回响应或 None(不处理)。
-    2026-09-13: 增加 method 参数, 让 favorite 等 POST 端点放行给 _build_dynamic 处理"""
+    2026-09-13: 增加 method 参数, 让 favorite 等 POST 端点放行给 _build_dynamic 处理
+    2026-11-12: 增加 req 参数, /v1/owner 的 PUT 改名需要读请求体"""
     # ---- 2026-11-08: /v1/photospot 场景全解锁 ----
     # 原理: photo_spot_list 里"存在 (photo_spot_mid, girl_mid) 条目"= 该女孩在该场景已解锁(可拍)。
     #   原走 REAL_RESPONSES 静态快照: 只 33 个女孩的部分场景, 且含 girl_mid=34 (客户端 2..33 才有,
@@ -3154,6 +4054,22 @@ def _apply_state_overlay(path, method=None):
         return {"photo_spot_list": _psl}
     # /v1/owner 返回当前主女孩
     if path == "/v1/owner" or path == "/v1/owner/updatelogin":
+        # 2026-11-12: 客户端"更改岛主名 / 岛名 / 留言"实际发的是 PUT /v1/owner,
+        # body 形如 {"name":"x"} / {"island_name":"y"} / {"message":"z"}。
+        # 旧实现无视 method 直接回放快照 -> 改了不生效。这里先落盘再回写。
+        if method == "PUT" and isinstance(req, dict):
+            _op = STATE.get("owner_profile")
+            if not isinstance(_op, dict):
+                _op = STATE["owner_profile"] = {}
+            _chg = False
+            for _f in OWNER_PROFILE_FIELDS:
+                if _f in req and req[_f] is not None:
+                    _v = str(req[_f])[:50]
+                    if _v != _op.get(_f):
+                        _op[_f] = _v
+                        _chg = True
+            if _chg:
+                _save_state()
         # 2026-09-11 修复: 浅拷贝会改原始 REAL_RESPONSES, 改用 deepcopy
         import copy as _copy_own
         base = _copy_own.deepcopy(REAL_RESPONSES.get(path, {"owner": {}}))
@@ -3162,11 +4078,13 @@ def _apply_state_overlay(path, method=None):
             owner["main_girl_mid"] = STATE.get("main_girl_mid", 3)
             owner["level"] = 300; owner["license_level"] = 99; owner["license_point"] = 999999
             owner["checked_license_level"] = 99; owner["stamina"] = 999
+            _apply_owner_profile(owner)
         elif isinstance(owner, list):
             for o in owner:
                 o["main_girl_mid"] = STATE.get("main_girl_mid", 3)
                 o["level"] = 300; o["license_level"] = 99; o["license_point"] = 999999
                 o["checked_license_level"] = 99; o["stamina"] = 999
+                _apply_owner_profile(o)
         # owner_list 型 (updatelogin 的真实结构, 实测): 逐个注入 STATE 主女孩
         # 2026-09-10 修复: 此前只处理 owner, 漏 owner_list → 返回原始 main=3 → 客户端进岛回退穗香
         olist = base.get("owner_list")
@@ -3176,6 +4094,7 @@ def _apply_state_overlay(path, method=None):
                     o["main_girl_mid"] = STATE.get("main_girl_mid", 3)
                     o["level"] = 300; o["license_level"] = 99; o["license_point"] = 999999
                     o["checked_license_level"] = 99; o["stamina"] = 999
+                    _apply_owner_profile(o)
         # 2026-11-07: last_logged_at 必须是"真实的 UTC 现在" — 客户端按 UTC 解析后算"距上次登录多久".
         # 旧实现用 game_today_str()(游戏日标签) + 本地时分 -> 北京 15:00 时写出 "D 15:00" = 客户端眼中的
         # D 23:00 (未来 16 小时) -> 判定未来日期 -> 走未实现的跨日回归分支 -> 卡死。
@@ -3204,10 +4123,14 @@ def _apply_state_overlay(path, method=None):
         import copy as _copy
         resp = _copy.deepcopy(base)
         # 递归找 owner_room 字段
+        _or_st = STATE.get("owner_room") or {}
         def _patch(obj):
             if isinstance(obj, dict):
                 if "owner_room" in obj and isinstance(obj["owner_room"], dict):
                     obj["owner_room"]["main_girl_mid"] = STATE.get("main_girl_mid", 3)
+                    # 2026-11-11b: 副女孩也以 STATE 为准 (池里是抓包时的旧副女孩, 换过不同步)
+                    if _or_st.get("sub_girl_mid"):
+                        obj["owner_room"]["sub_girl_mid"] = _or_st["sub_girl_mid"]
                 for v in obj.values():
                     _patch(v)
             elif isinstance(obj, list):
@@ -3229,26 +4152,213 @@ def _apply_state_overlay(path, method=None):
         for g in resp.get("girl_list", []):
             apply_girl_state(g)
         # 2026-09-16: 解锁所有女孩 — /v1/girl 响应默认只有20个, 从 girl_master 构造所有缺失女孩
+        # 2026-11-11: 改用 _build_girl_from_master 的自洽对象 (旧实现是"模板改 mid",
+        #   残留模板女孩的发型/视觉字段, 客户端点进这些女孩的主页会白屏/闪退)
         _existing_gmids = {g.get("girl_mid") for g in resp.get("girl_list", [])}
         for _ugm in sorted(GIRL_MASTER_MAP):
             if _ugm not in _existing_gmids:
-                _gmm = GIRL_MASTER_MAP[_ugm]
-                _tmpl = _copy.deepcopy(resp["girl_list"][0]) if resp.get("girl_list") else {"owner_id": OWNER_ID}
-                _tmpl["girl_mid"] = _ugm
-                _tmpl["power"] = _gmm.get("power", 1000)
-                _tmpl["technic"] = _gmm.get("technic", 800)
-                _tmpl["stamina"] = _gmm.get("stamina", 1000)
-                _tmpl["appeal"] = _gmm.get("appeal", 20)
-                _tmpl["swimsuit_item_mid"] = _gmm.get("swimsuit", 0)
-                _tmpl["hair_item_mid"] = _gmm.get("hair", 0)
-                _tmpl["experience"] = 0
-                _tmpl["level"] = 1
-                _tmpl["affection_level"] = 1
-                _tmpl["created_at"] = "2023-05-24 06:02:14"
-                _tmpl["updated_at"] = "2023-05-24 06:02:14"
+                _tmpl = _build_girl_from_master(_ugm)
+                if _tmpl is None:
+                    continue
                 apply_girl_state(_tmpl)
                 resp.setdefault("girl_list", []).append(_tmpl)
+        global GIRL_RESP_ORDER
+        GIRL_RESP_ORDER = [_venus_int(_g.get("girl_mid"))
+                           for _g in resp.get("girl_list", []) if _venus_int(_g.get("girl_mid"))]
         return resp
+    # ===== 2026-11-13: 维纳斯图板 (Venus Board) =====
+    # 真服端点(二进制字符串实证): status / panel / update/status / open / open/list / exchange
+    if path.startswith("/v1/venus_board/"):
+        _vst = venus_state()
+        _vreq_g = 0
+        if isinstance(req, dict):
+            try:
+                _vreq_g = int(req.get("girl_mid") or 0)
+            except (TypeError, ValueError):
+                _vreq_g = 0
+        _vgirl = _vreq_g or int(_vst.get("current_girl") or 0) or int(STATE.get("main_girl_mid", 3))
+        if GIRL_MASTER_MAP and _vgirl not in GIRL_MASTER_MAP:
+            _vgirl = int(STATE.get("main_girl_mid", 3))
+            if _vgirl not in GIRL_MASTER_MAP:
+                _vgirl = sorted(GIRL_MASTER_MAP)[0]
+
+        # GET /v1/venus_board/status → 当前图板女孩 (真服抓包只回一条)
+        if path == "/v1/venus_board/status" and method == "GET":
+            _vst["current_girl"] = _vgirl
+            return {"venus_board_status_list": [{"girl_mid": _vgirl}]}
+
+        # POST /v1/venus_board/update/status {girl_mid} → 记录当前图板女孩
+        if path == "/v1/venus_board/update/status" and method == "POST":
+            _vst["current_girl"] = _vgirl
+            _save_state()
+            return {"venus_board_status_list": [{"girl_mid": _vgirl}]}
+
+        # GET /v1/venus_board/panel → 所有女孩已解锁面板 (客户端据此绘制亮起的看板)
+        if path == "/v1/venus_board/panel" and method == "GET":
+            return {"venus_board_girl_panel_list": venus_panel_list()}
+
+        # POST /v1/venus_board/open {content_mid, panel_id} → 解锁一块看板并领取该看板奖励
+        if path == "/v1/venus_board/open" and method == "POST":
+            _vc = _venus_int((req or {}).get("content_mid"))
+            _vp = _venus_int((req or {}).get("panel_id"))
+            _res = venus_open_one(_vgirl, _vc, _vp)
+            if _res is None:
+                print(f"[venus] open 未知看板 girl={_vgirl} content={_vc} panel={_vp}")
+                return venus_progress_payload(_vgirl, [], [])
+            # 已开过的看板也回填到 panel_list: 客户端据此判定"这块是亮的",
+            # 避免重复点击时拿到空列表 → 误判成领取失败 / 看板又变暗。
+            _payload = venus_progress_payload(_vgirl, [_res["row"]], _res["granted"])
+            if _res["newly"]:
+                print(f"[venus] girl={_vgirl} 解锁 {_vc}:{_vp} "
+                      f"奖励={[(g['item_mid'], g['count']) for g in _res['granted']][:8]}")
+            return _payload
+
+        # open/list: POST=批量解锁(面板 "全部领取"); GET=已解锁清单
+        if path == "/v1/venus_board/open/list":
+            if method == "GET":
+                _lst = venus_panel_list()
+                _grouped = {}
+                for _x in _lst:
+                    _grouped.setdefault((_x["girl_mid"], _x["content_mid"]), []).append(_x["panel_id"])
+                return {
+                    "venus_board_girl_panel_list": _lst,
+                    "venus_board_open_list": [
+                        {"girl_mid": _gk[0], "content_mid": _gk[1], "panel_id_list": _pl}
+                        for _gk, _pl in sorted(_grouped.items())
+                    ],
+                }
+            _vpids = (req or {}).get("panel_id_list") or []
+            if not isinstance(_vpids, list):
+                _vpids = [_vpids]
+            _vc = _venus_int((req or {}).get("content_mid"))
+            _rows, _granted, _seen = [], [], set()
+            _seen_rows = set()
+            for _p in _vpids:
+                _r = venus_open_one(_vgirl, _vc, _venus_int(_p))
+                if _r is None:
+                    continue
+                _pk = venus_panel_key(_r["row"])
+                if _pk not in _seen_rows:
+                    _seen_rows.add(_pk)
+                    _rows.append(_r["row"])
+                for _it in _r["granted"]:
+                    _k2 = (_it.get("item_mid"), _it.get("count"))
+                    if _k2 not in _seen:
+                        _seen.add(_k2)
+                        _granted.append(_it)
+            if _rows:
+                print(f"[venus] girl={_vgirl} 批量解锁 {len(_rows)} 块 (open/list)")
+            return venus_progress_payload(_vgirl, _rows, _granted)
+
+    # ===== 2026-11-13: 亲爱度报酬领取 (POST /v1/affection_reward {content_mid, girl_mid}) =====
+    # 真服响应必须同时含 4 个字段, 少一个客户端就"领取成功但列表空白":
+    #   affection_levelup_reward_list  弹窗逐条奖励 (逐级一行, 这才是"获得奖励"列表的数据源)
+    #   girl_status_progress           四维 before/gain/after
+    #   affection_level_reward_list    accepted_level (决定"领取"按钮是否还亮)
+    #   girl_list                      该女孩最新数据
+    # ===== 2026-11-13: 亲爱度报酬「已领到第几级」查询 (GET /v1/affection_reward) =====
+    # 2026-11-13 二次修复: GET 原来落到静态抓包(accepted_level 恒 0) → 客户端认为还没领,
+    #   领完按钮还亮着, 再点一次没有任何新条目 → 弹窗空白。必须按 STATE 回真实进度。
+    # 2026-11-13 七次修复(决定性证据: real_responses.json 的真服样本):
+    #   真服 affection_level_reward_list **只含「仍有未领报酬」的女孩**, 领完的整条消失
+    #   —— 样本里 girl 3 只出现在"未领"快照(accepted_level=0), 已领到 LV.2 的
+    #   11/13/15/18 在后续快照里才带 accepted_level=2, 而 girl 3 已不在列表里。
+    #   之前一律回全量 32 条 → 客户端永远能在列表里找到当前女孩 → 按钮/红点常亮,
+    #   可以无限重复领取; 再点又命中"回退历史全量条目"→ "重复领取居然有奖励"。
+    #   正确语义: 逐女孩过滤, 全部领完 → 空数组 → 按钮自然消失。
+    def _aff_pending(girls):
+        _acc = STATE.get("affection_accepted") or {}
+        _out = []
+        for _g in girls:
+            # apply_girl_state 无条件把 affection_level 设为 CAP, 这里直接用常量即可
+            _acp = min(_venus_int(_acc.get(str(_g))), _AFFECTION_LEVEL_CAP)
+            if _AFFECTION_LEVEL_CAP > 1 and _acp < _AFFECTION_LEVEL_CAP:
+                _out.append({"content_mid": 1, "girl_mid": _g,
+                             "accepted_level": _acp})
+        return _out
+
+    if path == "/v1/affection_reward" and method == "GET":
+        _ag_one = _venus_int((req or {}).get("girl_mid")) if isinstance(req, dict) else 0
+        _ag_list = [_ag_one] if _ag_one else affection_girl_order()
+        return {"affection_level_reward_list": _aff_pending(_ag_list)}
+
+    if path == "/v1/affection_reward" and method == "POST":
+        _ar_g = _venus_int((req or {}).get("girl_mid")) or int(STATE.get("main_girl_mid", 3))
+        # 2026-11-13 七次修复: 真服"逐条领取"会在请求里带 level(=被点的那一级)。
+        #   之前完全忽略它 → 点任意一行都回全部等级 → 用户看到"逐个点击也显示全部领取"。
+        _ar_req_lv = _venus_int((req or {}).get("level"))
+        _ar_acc = STATE.setdefault("affection_accepted", {})
+        _ar_girl = girl_obj_from_db(_ar_g)
+        if _ar_girl:
+            apply_girl_state(_ar_girl)
+        # 2026-11-13 六次修复: 等级封顶 300 (客户端「亲爱度报酬」页只认 LV.300)
+        _ar_lv = min(int(_ar_girl.get("affection_level", 1)) if _ar_girl else 1,
+                     _AFFECTION_LEVEL_CAP)
+        _ar_key = str(_ar_g)
+
+        # 逐级发奖台账: 防止"重置/重进"后重复发奖 (与维纳斯图板的 granted 同思路)
+        _ar_gr = STATE.get("affection_granted")
+        if not isinstance(_ar_gr, dict):
+            # 首次建立: 老存档的 accepted_level 已经推到了 339, 把历史等级记成"已发"
+            _ar_gr = {}
+            for _gk2, _gv2 in list(_ar_acc.items()):
+                _ar_gr[_gk2] = list(range(1, _venus_int(_gv2) + 1))
+            STATE["affection_granted"] = _ar_gr
+            # 一次性把"已领等级"归零, 让玩家重新点「全部领取」就能看到奖励列表,
+            # 已发过的等级靠 _ar_gr 拦住不会重复进包。
+            for _gk2 in list(_ar_acc):
+                _ar_acc[_gk2] = 0
+        _ar_prev = _venus_int(_ar_acc.get(_ar_key))
+        _ar_done = set(_ar_gr.get(_ar_key) or [])
+        # 待处理等级: 带 level = 只领这一级(逐条领取); 不带 = 所有未领等级(全部领取)
+        if _ar_req_lv:
+            _ar_targets = [_ar_req_lv] if 2 <= _ar_req_lv <= _ar_lv else []
+        else:
+            _ar_targets = [_lv for _lv in range(2, _ar_lv + 1) if _lv not in _ar_done]
+        _ar_entries, _ar_pairs, _ar_new = [], {}, []
+        for _lv in _ar_targets:
+            if _lv in _ar_done:
+                # 已领过的等级不再回内容 —— 这正是"重复领取还能看到奖励"的来源
+                continue
+            _entry = affection_entry(_ar_g, _lv)
+            _ar_new.append(_lv)
+            if not _entry:
+                continue            # 该级无道具奖励(报酬表只有 31 个等级有), 不留全 0 空行
+            _ar_entries.append(_entry)
+            for _im, _cn in ((_entry["item_mid1"], _entry["item_count1"]),
+                             (_entry["item_mid2"], _entry["item_count2"]),
+                             (_entry["voice_mid"], 1 if _entry["voice_mid"] else 0)):
+                if _im and _cn:
+                    _ar_pairs[_im] = _ar_pairs.get(_im, 0) + _cn
+        if _ar_new:
+            if _ar_pairs:
+                venus_grant_items(sorted(_ar_pairs.items()))
+            _ar_done |= set(_ar_new)
+            _ar_gr[_ar_key] = sorted(_ar_done)
+            # accepted_level = 已领到的最高等级 (逐条领取时可能跳跃, 未领的低等级仍可领)
+            _ar_acc[_ar_key] = min(max(_ar_done), _ar_lv)
+            _save_state()
+        log_write(f"  [affection] girl={_ar_g} req_level={_ar_req_lv} "
+                  f"亲爱度报酬 LV.{_ar_prev}->{_ar_acc.get(_ar_key)} "
+                  f"条目={len(_ar_entries)} 新发等级={len(_ar_new)} 奖励={_ar_pairs}\n")
+        _flush_log()
+
+        _gsp = {}
+        for _sf, _bk in (("power", "additional_power"), ("technic", "additional_technic"),
+                         ("stamina", "additional_stamina"), ("appeal", "additional_appeal")):
+            _bv = _venus_int((_ar_girl or {}).get(_bk))
+            _gsp[f"{_sf}_before"] = _bv
+            _gsp[f"{_sf}_gain"] = 0
+            _gsp[f"{_sf}_after"] = _bv
+        return {
+            "affection_levelup_reward_list": _ar_entries,
+            "girl_status_progress": _gsp,
+            # 2026-11-13 七次修复: 与 GET 同语义 —— 领完(或本次领完)后该女孩不再出现在
+            #   列表里, 客户端据此熄灭按钮/红点; 之前回全量 32 条 → 永远可领。
+            "affection_level_reward_list": _aff_pending([_ar_g]),
+            "girl_list": [_ar_girl] if _ar_girl else [],
+        }
+
     # 2026-09-14: GET /v1/girl/{mid} 单女孩详情动态化 (像私服版, 从DB构建+装备状态, 不走静态REAL_RESPONSES)
     _m_girl_get = re.match(r"^/v1/girl/(\d+)$", path)
     if _m_girl_get and method == "GET":
@@ -3756,7 +4866,11 @@ def _build_room_request(path, req, method="POST"):
     STATE.setdefault("friendly_value", []); now = server_now_str()
     if path == "/v1/room" and method in ("GET", "POST"):
         oroom = STATE.get("owner_room") or {"owner_id": OWNER_ID, "main_girl_mid": STATE.get("main_girl_mid", 3), "sub_girl_mid": 15, "set_no": 0}
-        return {"owner_room": dict(oroom)}
+        _oroom = dict(oroom)
+        # 2026-11-11: 与 /v1/owner 对齐, 不再返回 owner_room 里过期的 main_girl_mid
+        #   (切换主界面看板娘后此处曾是旧值 3, 客户端两个界面拿到不同女孩)
+        _oroom["main_girl_mid"] = STATE.get("main_girl_mid", 3)
+        return {"owner_room": _oroom}
     if path == "/v1/room/request" and method in ("GET", "POST"):
         cur = rr["current"]
         if cur:
@@ -3781,13 +4895,40 @@ def _build_room_request(path, req, method="POST"):
         # 持久化岛主房间女孩 (main_girl=girl_mid1, sub_girl=girl_mid2) — 退出重进保持
         # 2026-09-18: guard None — req 空(girl_mid1 缺失)时不覆盖, 防止写 None 污染 owner_room 导致房间女孩丢失
         if gm1 is not None:
-            STATE["owner_room"] = {"owner_id": OWNER_ID, "main_girl_mid": gm1,
-                                  "sub_girl_mid": gm2 if gm2 is not None else 15, "set_no": 0}
-            STATE["main_girl_mid"] = gm1
+            try:
+                _gm1i = int(gm1)
+            except (TypeError, ValueError):
+                _gm1i = None
+            if _gm1i is not None and (not GIRL_MASTER_MAP or _gm1i in GIRL_MASTER_MAP):
+                try:
+                    _gm2i = int(gm2) if gm2 is not None else None
+                except (TypeError, ValueError):
+                    _gm2i = None
+                if _gm2i is not None and GIRL_MASTER_MAP and _gm2i not in GIRL_MASTER_MAP:
+                    _gm2i = None   # 2026-11-11b: 非法副女孩 ID 不落盘
+                _or3 = STATE.get("owner_room") or {}
+                STATE["owner_room"] = {"owner_id": OWNER_ID, "main_girl_mid": _gm1i,
+                                      "sub_girl_mid": _gm2i if _gm2i is not None else _or3.get("sub_girl_mid", 15),
+                                      "set_no": _or3.get("set_no", 0)}
+                STATE["main_girl_mid"] = _gm1i
+            else:
+                # 2026-11-11: 非法女孩 ID 不落盘, 保持主女孩; 只更新房间副女孩
+                log_write(f"  [ROOM-GIRLS] 拒绝非法 gm1={gm1}, 保持 {STATE.get('main_girl_mid', 3)}\n")
+                _or2 = STATE.get("owner_room")
+                if isinstance(_or2, dict):
+                    _or2["main_girl_mid"] = STATE.get("main_girl_mid", 3)
+                    try:
+                        _gm2j = int(gm2) if gm2 is not None else None
+                    except (TypeError, ValueError):
+                        _gm2j = None
+                    if _gm2j is not None and (not GIRL_MASTER_MAP or _gm2j in GIRL_MASTER_MAP):
+                        _or2["sub_girl_mid"] = _gm2j   # 2026-11-11b: 只接受合法副女孩
             _save_state()
+            _flush_state()   # 2026-11-11: 女孩是关键状态, 立即落盘
         else:
             log_write(f"  [ROOM-GIRLS] gm1=None, 跳过写入(防污染), 当前 owner_room={STATE.get('owner_room')}\n")
         _or = STATE.get("owner_room") or {"owner_id": OWNER_ID, "main_girl_mid": STATE.get("main_girl_mid", 3), "sub_girl_mid": 15, "set_no": 0}
+        _or["main_girl_mid"] = STATE.get("main_girl_mid", 3)   # 2026-11-11b: 与 /v1/room GET 对齐
         return {"owner_room": dict(_or)}
     if path == "/v1/room/request/start" and method == "POST":
         g = rr.get("girls") or {}
@@ -3987,6 +5128,7 @@ def _build_dynamic(path, req, method="POST"):
         # 2026-09-27: 真实响应格式(抓包自Steam私服版): owner_room + furniture_myset_list(含全部, item_mid=0为取下)
         # 原{"status":"success"}客户端不认→布局没保存到客户端→"无效"
         _or = STATE.get("owner_room") or {"owner_id": OWNER_ID, "main_girl_mid": STATE.get("main_girl_mid", 3), "sub_girl_mid": 15, "set_no": 0}
+        _or["main_girl_mid"] = STATE.get("main_girl_mid", 3)   # 2026-11-11b: 家具响应里的房间也用当前主女孩
         log_write(f"  [FURNITURE] 布局保存 {len(_clean)} 件 (丢弃 {len(_quar)})\n")
         for _q in _quar:
             log_write(f"    丢弃 item_mid={_q['item_mid']} layout={_q['layout_mid']} 原因={_q['reason']}\n")
@@ -4126,26 +5268,37 @@ def _build_dynamic(path, req, method="POST"):
                 _resp["pose_card_item_list"] = _pcl
         return _resp
 
-    # ---- 切换主女孩: 从 /v1/girl 数据构造任意女孩响应, 并保存状态 ----
+    # ---- 切换主界面看板娘: 构造自洽 girl 对象并持久化 (2026-11-11 重写) ----
     if path == "/v1/owner/main_girl":
         mid = req.get("main_girl_mid")
         if mid is None:
             return None
-        girl = girl_obj_from_db(int(mid))
+        try:
+            mid = int(mid)
+        except (TypeError, ValueError):
+            return None
+        # ① 合法性校验: 只接受 girl_master 里真实存在的女孩, 非法 mid 一律不落盘
+        if mid not in GIRL_MASTER_MAP:
+            log_write(f"  [MAIN-GIRL] 拒绝非法 girl_mid={mid}, 保持 {STATE.get('main_girl_mid', 3)}\n")
+            return None
+        girl = girl_obj_from_db(mid)
         if girl is None:
-            # 兜底: 用池里最近的一个响应改 girl_mid
-            pool = SERVER_DB.get("main_girl_by_mid", {})
-            if pool:
-                girl = dict(list(pool.values())[0].get("girl", {}))
-                girl["girl_mid"] = int(mid)
-            else:
-                return None
-        # 叠加已保存的装备状态 + 更新主女孩
+            # ② 构造失败宁可放弃切换, 也不再用"拿别的女孩改 girl_mid"的混血兜底
+            log_write(f"  [MAIN-GIRL] girl {mid} 构造失败, 放弃切换\n")
+            return None
         apply_girl_state(girl)
-        STATE["main_girl_mid"] = int(mid)
+        # ③ 同步 owner_room: 否则 /v1/owner 返回新看板娘而 /v1/room 仍是旧的,
+        #    客户端主界面与岛主房间拿到两个不同女孩 -> 资源/场景状态互相打架
+        _or = STATE.get("owner_room")
+        if isinstance(_or, dict):
+            _or["main_girl_mid"] = mid
+        STATE["main_girl_mid"] = mid
         _save_state()
+        _flush_state()   # ④ 切换是关键状态, 立即落盘, 不等 2 秒去抖窗口 (防崩溃时丢失/回退)
+        log_write(f"  [MAIN-GIRL] 切换并落盘 girl_mid={mid} "
+                  f"hair={girl.get('hair_item_mid')} swimsuit={girl.get('swimsuit_item_mid')}\n")
         # 构造完整响应 (girl + owner_partner_list + girl_list 结构)
-        partner = {"owner_id": OWNER_ID, "main_girl_mid": int(mid), "lend_girl_mid": 21,
+        partner = {"owner_id": OWNER_ID, "main_girl_mid": mid, "lend_girl_mid": 21,
                    "updated_at": server_now_str()}
         return {"girl": girl, "owner_partner_list": [partner], "girl_list": [girl]}
 
@@ -4423,7 +5576,7 @@ def _build_dynamic(path, req, method="POST"):
             if not _gacha_is_active(_gm_draw):
                 print(f"[gacha/draw] WARNING: gacha_mid={_gm_draw} 已过期或未开始 (type={_gtype})")
         # 方案C: 从保底状态读当前阶梯, 传给 _random_gacha_items
-        _draw_step = STATE.get("gacha_pity", {}).get(str(_gm_draw), {}).get("current_step", 1) if _gm_draw else 1
+        _draw_step = STATE.get("gacha_pity", {}).get(_gacha_pity_key(_gm_draw), {}).get("current_step", 1) if _gm_draw else 1
         if _gm_draw:
             _random_items = _random_gacha_items(_gm_draw, dc, _draw_step)
         elif _GACHA_RANDOM_POOL["items"]:
@@ -4501,8 +5654,8 @@ def _build_dynamic(path, req, method="POST"):
                 except (ValueError, TypeError):
                     _gm_rw = None
             if _gm_rw:
-                _rw_step = STATE.get("gacha_pity", {}).get(str(_gm_rw), {}).get("current_step", 1)
-                _rw_pool = _get_gacha_pool(_gm_rw, _rw_step)
+                _rw_step = STATE.get("gacha_pity", {}).get(_gacha_pity_key(_gm_rw), {}).get("current_step", 1)
+                _rw_pool = _gacha_effective_pool(_gm_rw, _rw_step, _get_gacha_pool(_gm_rw, _rw_step))
                 _ssr_set = {im for im, _ in _rw_pool.get("SSR", [])}
                 _auto_lock = _get_gacha_config(_gm_rw).get("ssr_auto_lock", False)
             # 生成唯一装备实例 id (大整数, 4B 量级避开抓包 3.1B 区间)
@@ -4895,7 +6048,9 @@ def _build_dynamic(path, req, method="POST"):
                         _g["gacha_drew_before"] = True
             # GM 控制可见卡池: gacha_visible_pools 非 None 时只返回列表内的卡池
             _vis = STATE.get("gacha_visible_pools")
-            if _vis is not None:
+            # None / [] 都表示「全部显示」；GM 面板用哨兵 mid 表达「一个都不显示」。
+            # 口径必须与 /gm/api/gacha/visible 的回读一致，否则空列表会把卡池全过滤掉。
+            if _vis:
                 _vis_set = {int(v) for v in _vis}
                 resp["gacha_info_list"] = [g for g in resp.get("gacha_info_list", []) if g.get("gacha_mid") in _vis_set]
             return resp
@@ -5663,6 +6818,83 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 req = {}
 
+        # ---- GET/POST /gm/api/gm_session → GM 会话开关 (托盘「启动GM / 关闭GM」) ----
+        # GET  : 页面心跳, 返回 {"active": bool}; 面板据此显示/隐藏「GM 已关闭」遮罩
+        # POST : {"active": true/false} 由托盘点「启动GM / 关闭GM」调用
+        if p == "/gm/api/gm_session":
+            if method == "POST":
+                _v = req.get("active", None)
+                if isinstance(_v, bool):
+                    GM_SESSION["active"] = _v
+            data = json.dumps({"ok": True, "active": GM_SESSION["active"]}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
+        # GM 会话关闭期间, 其余 GM 接口一律 403 —— 真正"断开", 不只是遮一层界面
+        if not GM_SESSION["active"] and p.startswith("/gm/api/"):
+            data = json.dumps({"ok": False, "error": "gm_closed"}).encode("utf-8")
+            self.send_response(403)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
+        # ---- GET /gm/api/names → GM 专属名称修正表 (纯展示层, 不动原始主数据) ----
+        if p == "/gm/api/names" and method == "GET":
+            _nm = _gm_names_read()
+            resp = {"ok": True, "file": "GM/gm_names.csv",
+                    "items": _nm["items"], "groups": _nm["groups"], "types": _nm["types"],
+                    "count": len(_nm["items"]) + len(_nm["groups"]) + len(_nm["types"])}
+            data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
+        # ---- POST /gm/api/name → 修改/恢复名称 (name 为空 = 删除该条修正) ----
+        if p == "/gm/api/name" and method == "POST":
+            _kind = str(req.get("kind", "") or "").strip().lower()
+            _key = str(req.get("key", "") or "").strip()
+            _name = str(req.get("name", "") or "").strip()
+            if _kind not in ("item", "group", "type") or not _key:
+                resp = {"ok": False, "error": "kind 必须是 item/group/type, key 不能为空"}
+            elif len(_name) > 60:
+                resp = {"ok": False, "error": "名称过长（上限 60 字）"}
+            else:
+                try:
+                    # 2026-11-12: 幂等 —— 与已保存值完全相同时不重复写盘, 直接回 ok+unchanged
+                    _cur = _gm_names_read()
+                    _bucket = {"item": _cur["items"], "group": _cur["groups"], "type": _cur["types"]}[_kind]
+                    if _name and _bucket.get(_key) == _name:
+                        resp = {"ok": True, "unchanged": True, "items": _cur["items"],
+                                "groups": _cur["groups"], "types": _cur["types"],
+                                "count": len(_cur["items"]) + len(_cur["groups"]) + len(_cur["types"])}
+                    else:
+                        _nm = _gm_names_write(_kind, _key, _name, req.get("original", ""))
+                        resp = {"ok": True, "items": _nm["items"], "groups": _nm["groups"], "types": _nm["types"],
+                                "count": len(_nm["items"]) + len(_nm["groups"]) + len(_nm["types"]),
+                                "removed": not _name}
+                except Exception as e:
+                    resp = {"ok": False, "error": str(e)}
+            data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
         # ---- GET /gm/api/state → 返回 STATE 摘要 ----
         if p == "/gm/api/state" and method == "GET":
             gb_total = 0
@@ -5686,6 +6918,7 @@ class Handler(BaseHTTPRequestHandler):
                 "custom_mails": STATE.get("custom_mails", []),
                 "monthly_claimed": STATE.get("monthly_claimed", {}),
                 "read_information": STATE.get("read_information", []),
+                "venus_board": venus_stats(),
             }
             data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -5719,7 +6952,18 @@ class Handler(BaseHTTPRequestHandler):
         # ---- POST /gm/api/girl → 切换看板娘 / 修改装备 ----
         if p == "/gm/api/girl" and method == "POST":
             if "main_girl_mid" in req:
-                STATE["main_girl_mid"] = int(req["main_girl_mid"])
+                try:
+                    _gm_mid = int(req["main_girl_mid"])
+                except (TypeError, ValueError):
+                    _gm_mid = None
+                if _gm_mid is not None and (not GIRL_MASTER_MAP or _gm_mid in GIRL_MASTER_MAP):
+                    _gm_or = STATE.get("owner_room")
+                    if isinstance(_gm_or, dict):
+                        _gm_or["main_girl_mid"] = _gm_mid
+                    STATE["main_girl_mid"] = _gm_mid
+                else:
+                    log_write(f"  [MAIN-GIRL] GM 拒绝非法 girl_mid={req['main_girl_mid']}, "
+                              f"保持 {STATE.get('main_girl_mid', 3)}\n")
             if "girl_mid" in req and "equipment" in req:
                 gm = str(req["girl_mid"])
                 eq = STATE.setdefault("girl_equipment", {})
@@ -5732,6 +6976,7 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             cur[k] = int(req["equipment"][k])
             _save_state()
+            _flush_state()   # 2026-11-11: 看板娘是关键状态, 立即落盘
             resp = {"ok": True, "main_girl_mid": STATE["main_girl_mid"]}
             data = json.dumps(resp).encode()
             self.send_response(200)
@@ -5751,7 +6996,12 @@ class Handler(BaseHTTPRequestHandler):
             if action == "add":
                 ic[mid] = ic.get(mid, 0) + count
             elif action == "set":
-                ic[mid] = count
+                # 2026-11-13: 设为 0 视为移出库存, 不留 0 值条目
+                # (GM 面板「当前库存」按数量 > 0 过滤, 0 值条目会变成隐形垃圾数据)
+                if count > 0:
+                    ic[mid] = count
+                else:
+                    ic.pop(mid, None)
             elif action == "remove":
                 ic.pop(mid, None)
             _save_state()
@@ -5769,7 +7019,12 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/gm/api/reset" and method == "POST":
             mod = req.get("module", "")
             if mod == "giftbox":
+                # 2026-11-12 用户要求: 「重置邮箱」= 清空邮箱 + 清空历史领取记录。
+                # claimed 清空后内置 25 封会重新出现, 所以同时置 hide_builtin 把内置邮件隐藏,
+                # 并把 custom_mails 一并清空 -> 邮箱真正变空。
                 STATE["giftbox_claimed"] = []
+                STATE["custom_mails"] = []
+                STATE["giftbox_hide_builtin"] = True
             elif mod == "login_bonus":
                 STATE["monthly_claimed"] = {}
                 STATE.pop("daily_quest_date", None)
@@ -5778,6 +7033,8 @@ class Handler(BaseHTTPRequestHandler):
                 STATE["read_information"] = []
             elif mod == "all":
                 STATE["giftbox_claimed"] = []
+                STATE["custom_mails"] = []
+                STATE["giftbox_hide_builtin"] = True
                 STATE["monthly_claimed"] = {}
                 STATE["read_information"] = []
             else:
@@ -5796,9 +7053,17 @@ class Handler(BaseHTTPRequestHandler):
 
         # ---- POST /gm/api/giftbox/send → 发送自定义邮件 (GM 发放物品) ----
         if p == "/gm/api/giftbox/send" and method == "POST":
-            import time as _time
             cm = STATE.setdefault("custom_mails", [])
-            _next_id = 900000001 + len(cm)
+            # 2026-11-12 修复: 之前用 900000001+len(cm) 分配 id, 领取后 custom_mails 里的
+            # 邮件仍在、但清空/重建后 len 归零 -> 新邮件复用已领取的旧 id -> 一发出就被
+            # giftbox_claimed 判定为"已领"而过滤掉, 游戏邮箱里看不到。改为取所有已知 id
+            # (现存邮件 + 已领取记录) 的最大值 +1, 保证永不复用。
+            _claimed_ids = set(int(c) for c in (STATE.get("giftbox_claimed") or []) if isinstance(c, int))
+            _known = [900000000] + [int(m.get("id") or 0) for m in cm] + \
+                     [c for c in _claimed_ids if c >= 900000000]
+            _next_id = max(_known) + 1
+            while _next_id in _claimed_ids:
+                _next_id += 1
             mail = {
                 "id": _next_id,
                 "sender_id": OWNER_ID,
@@ -5809,7 +7074,10 @@ class Handler(BaseHTTPRequestHandler):
                 "message": req.get("message", "GM发放"),
                 "parameter1": 0,
                 "created_at": game_now().strftime("%Y-%m-%d %H:%M:%S"),
-                "expired_at": (game_now().replace(year=game_now().year + 1)).strftime("%Y-%m-%d %H:%M:%S"),
+                # 2026-11-12: 有效期 +1年 → +30天。真实邮件全是 30 天窗口
+                # (created 2026-09-03 / expired 2026-10-03), 客户端对异常期限的邮件
+                # 会直接发 force_accepted 强制领取, 导致邮件无法正常查看。
+                "expired_at": (game_now() + datetime.timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S"),
                 "accepted_at": None,
             }
             cm.append(mail)
@@ -5841,6 +7109,73 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
             return
 
+        # ---- GET/POST /gm/api/owner_profile → 岛主资料 (岛主名 / 岛名 / 留言) ----
+        # 2026-11-12: 游戏内改名走 PUT /v1/owner 且有前置校验, 改名门槛高;
+        # GM 侧直接读写 STATE["owner_profile"], /v1/owner 与 updatelogin 统一套覆盖层。
+        if p == "/gm/api/owner_profile":
+            op = STATE.get("owner_profile")
+            if not isinstance(op, dict):
+                op = {}
+            if method == "POST":
+                _src = dict(op)
+                if req.get("reset"):
+                    STATE.pop("owner_profile", None)
+                    _save_state()
+                    resp = {"ok": True, "owner_profile": {}, "prev": _src, "reset": True}
+                    data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    self.wfile.flush()
+                    return
+                op2 = dict(op)
+                for _f in OWNER_PROFILE_FIELDS:
+                    if _f in req and req[_f] is not None:
+                        op2[_f] = str(req[_f]).strip()[:50]
+                STATE["owner_profile"] = op2
+                _save_state()
+                resp = {"ok": True, "owner_profile": op2, "prev": _src}
+            else:
+                # 默认值取抓包快照, 方便面板显示"当前实际生效的值"
+                _def = {}
+                try:
+                    _snap = REAL_RESPONSES.get("/v1/owner", {})
+                    _o = _snap.get("owner")
+                    if isinstance(_o, dict):
+                        _def = _o
+                    elif isinstance(_o, list) and _o:
+                        _def = _o[0]
+                except Exception:
+                    _def = {}
+                cur = {_f: (op.get(_f) if _f in op else _def.get(_f, "")) for _f in OWNER_PROFILE_FIELDS}
+                builtin = {_f: _def.get(_f, "") for _f in OWNER_PROFILE_FIELDS}
+                resp = {"ok": True, "owner_profile": cur, "builtin": builtin,
+                        "overridden": sorted(k for k in op if k in OWNER_PROFILE_FIELDS)}
+            data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
+        # ---- POST /gm/api/giftbox/restore → 恢复被抓包内置邮件 (撤销 hide_builtin) ----
+        if p == "/gm/api/giftbox/restore" and method == "POST":
+            STATE.pop("giftbox_hide_builtin", None)
+            _save_state()
+            resp = {"ok": True, "restored": True}
+            data = json.dumps(resp).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
         # ---- GET /gm/api/log → 返回服务器日志 (最后100行) ----
         if p == "/gm/api/log" and method == "GET":
             log_text = ""
@@ -5852,6 +7187,108 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 log_text = f"(读取日志失败: {e})"
             resp = {"log": log_text}
+            data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
+        # ---- GET /gm/api/gacha/groups → 卡池分组(banner 组) ----
+        if p == "/gm/api/gacha/groups" and method == "GET":
+            _vis = STATE.get("gacha_visible_pools")
+            _vis_set = set(int(v) for v in _vis) if _vis else None
+            _gc = STATE.get("gacha_group_config", {})
+            _gnm = _gm_names_read().get("groups", {})   # GM 名称修正 (仅展示)
+            _groups = []
+            for _g in GACHA_GROUPS.get("groups", []):
+                _mids = _g.get("mids", [])
+                _one = {k: _g[k] for k in ("group_id", "pop_id", "has_banner", "tabs",
+                                           "types", "start_time", "end_time", "label") if k in _g}
+                _one["mids"] = _mids
+                _one["pools"] = _g.get("pools", {})
+                _one["visible"] = True if _vis_set is None else any(m in _vis_set for m in _mids)
+                _one["config"] = _gc.get(_g.get("group_id"), {})
+                _lbl = _gnm.get(str(_one.get("group_id")))
+                if _lbl:
+                    _one["label_default"] = _one.get("label")
+                    _one["label"] = _lbl
+                _groups.append(_one)
+            resp = {"groups": _groups,
+                    "visible_group_count": GACHA_GROUPS.get("visible_group_count", 0),
+                    "mid_count": GACHA_GROUPS.get("mid_count", 0)}
+            data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
+        # ---- POST /gm/api/gacha/group → 按卡池组设置/清除爆率 ----
+        if p == "/gm/api/gacha/group" and method == "POST":
+            _gc = STATE.setdefault("gacha_group_config", {})
+            try:
+                _gid = str(req.get("group_id") or "")
+                _g = GACHA_GROUP_BY_ID.get(_gid)
+                if not _g:
+                    raise ValueError("unknown group_id: " + _gid)
+                if req.get("action") == "clear":
+                    _gc.pop(_gid, None)
+                    _act = "cleared"
+                else:
+                    _cfg_in = req.get("config")
+                    if not isinstance(_cfg_in, dict):
+                        raise ValueError("config must be an object")
+                    _clean = {}
+                    if "rarity_weights" in _cfg_in:
+                        _rw = _cfg_in["rarity_weights"]
+                        if not isinstance(_rw, dict):
+                            raise ValueError("rarity_weights must be an object")
+                        _vals = {}
+                        for _r in ("SSR", "SR", "R"):
+                            _v = int(_rw.get(_r, 0))
+                            if _v < 0:
+                                raise ValueError("rarity_weights must be non-negative")
+                            _vals[_r] = _v
+                        if sum(_vals.values()) != 100:
+                            raise ValueError("SSR + SR + R must equal 100")
+                        _clean["rarity_weights"] = _vals
+                    for _k in ("hard_pity", "soft_pity_start", "soft_pity_increment"):
+                        if _k in _cfg_in:
+                            _v = int(_cfg_in[_k])
+                            if _v < 0:
+                                raise ValueError(_k + " must be non-negative")
+                            _clean[_k] = _v
+                    if "item_weights" in _cfg_in:
+                        _iw = _cfg_in["item_weights"]
+                        if not isinstance(_iw, dict):
+                            raise ValueError("item_weights must be an object")
+                        _clean["item_weights"] = {str(k): max(int(v), 1) for k, v in _iw.items()}
+                    for _k in ("enable_stepup", "ssr_auto_lock", "use_group_fill"):
+                        if _k in _cfg_in:
+                            _clean[_k] = bool(_cfg_in[_k])
+                    _gc[_gid] = _clean
+                    # 组内旧的单 mid 覆盖会干扰组配置，清掉 STATE 中的残留
+                    _po = STATE.setdefault("gacha_config", {}).setdefault("pool_overrides", {})
+                    for _m in _g.get("mids", []):
+                        _po.pop(str(_m), None)
+                    _act = "saved"
+            except (ValueError, TypeError) as _ge:
+                data = json.dumps({"error": str(_ge)}, ensure_ascii=False).encode("utf-8")
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                self.wfile.flush()
+                return
+            _save_state()
+            resp = {"ok": True, "group_id": _gid, "action": _act,
+                    "config": _gc.get(_gid, {}), "mids": _g.get("mids", [])}
             data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -5888,7 +7325,8 @@ class Handler(BaseHTTPRequestHandler):
             _sd = _sc.setdefault("defaults", {})
             for _k in ("rarity_weights", "use_csv_rarity", "hard_pity", "soft_pity_start",
                         "soft_pity_increment", "enable_stepup", "step_increment",
-                        "step_cap_behavior", "max_step_bonus", "ssr_auto_lock"):
+                        "step_cap_behavior", "max_step_bonus", "ssr_auto_lock",
+                        "use_group_fill"):
                 if _k in req:
                     _sd[_k] = req[_k]
             _save_state()
@@ -5924,7 +7362,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _full = GACHA_STEPUP_FULL.get(_gm_q, {})
             _max_step = max(_full.keys()) if _full else 1
-            _pity = STATE.get("gacha_pity", {}).get(str(_gm_q), {})
+            _pity = STATE.get("gacha_pity", {}).get(_gacha_pity_key(_gm_q), {})
             _cur_step = _pity.get("current_step", 1)
             _pool = _get_gacha_pool(_gm_q, _cur_step)
             _cfg = _get_gacha_config(_gm_q)
@@ -5940,9 +7378,12 @@ class Handler(BaseHTTPRequestHandler):
             _po_file = _GACHA_CONFIG_FILE.get("pool_overrides", {}).get(str(_gm_q), {})
             _po_state = STATE.get("gacha_config", {}).get("pool_overrides", {}).get(str(_gm_q), {})
             _po_merged = {**_po_file, **_po_state}
+            _gid_q = _gacha_group_of(_gm_q)
+            if _gid_q:
+                _po_merged = {**_po_merged, **STATE.get("gacha_group_config", {}).get(_gid_q, {})}
             _pool_info = GACHA_INFO_MAP.get(_gm_q, {})
             resp = {
-                "gacha_mid": _gm_q, "max_step": _max_step,
+                "gacha_mid": _gm_q, "max_step": _max_step, "group_id": _gid_q,
                 "type": _pool_info.get("type", 3),
                 "active": _gacha_is_active(_gm_q),
                 "start_time": _pool_info.get("start_time", ""),
@@ -6022,10 +7463,15 @@ class Handler(BaseHTTPRequestHandler):
                     _gm_r = int(_gm_r)
                 except (ValueError, TypeError):
                     _gm_r = None
-            if _gm_r:
-                _pk = str(_gm_r)
+            _gid_r = req.get("group_id")
+            if _gid_r and str(_gid_r) in GACHA_GROUP_BY_ID:
+                _pk = "g:" + str(_gid_r)
                 _pity[_pk] = {"draws_since_ssr": 0, "total_draws": 0, "current_step": 1}
-                resp = {"ok": True, "reset": str(_gm_r)}
+                resp = {"ok": True, "reset": _pk}
+            elif _gm_r:
+                _pk = _gacha_pity_key(_gm_r)
+                _pity[_pk] = {"draws_since_ssr": 0, "total_draws": 0, "current_step": 1}
+                resp = {"ok": True, "reset": _pk}
             else:
                 for _pk in _pity:
                     _pity[_pk] = {"draws_since_ssr": 0, "total_draws": 0, "current_step": 1}
@@ -6079,6 +7525,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/gm/api/gacha/visible" and method in ("GET", "POST"):
             if method == "GET":
                 _vis = STATE.get("gacha_visible_pools")
+                # None / [] = 全部显示；非空列表 = 只显示列表内的卡池
                 _vis_set = set(int(v) for v in _vis) if _vis else None
                 _gl = SERVER_DB.get("endpoints", {}).get("/v1/gacha/list", [])
                 _snap = _gl[0].get("gacha_info_list", []) if _gl else []
@@ -6089,13 +7536,31 @@ class Handler(BaseHTTPRequestHandler):
                         continue
                     _info = GACHA_INFO_MAP.get(_gm_v, {})
                     _pools.append({"gacha_mid": _gm_v, "type": _info.get("type", 3),
+                                   "group_id": _gacha_group_of(_gm_v),
                                    "visible": True if _vis_set is None else (int(_gm_v) in _vis_set)})
                 resp = {"visible_pools": _vis, "pools": _pools}
             else:
                 if req.get("action") == "reset":
                     STATE["gacha_visible_pools"] = None
                 else:
-                    STATE["gacha_visible_pools"] = req.get("visible_pools")
+                    # 只接受整数列表；传 null / 字符串时报错，而不是静默变成「全部显示」
+                    _vp = req.get("visible_pools")
+                    if not isinstance(_vp, list):
+                        data = json.dumps({"error": "visible_pools must be a list"}).encode()
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers(); self.wfile.write(data); self.wfile.flush()
+                        return
+                    try:
+                        STATE["gacha_visible_pools"] = [int(v) for v in _vp]
+                    except (TypeError, ValueError):
+                        data = json.dumps({"error": "visible_pools must contain numbers"}).encode()
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers(); self.wfile.write(data); self.wfile.flush()
+                        return
                 _save_state()
                 resp = {"ok": True, "gacha_visible_pools": STATE["gacha_visible_pools"]}
             data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
@@ -6124,6 +7589,38 @@ class Handler(BaseHTTPRequestHandler):
                 resp = {"ok": True, "item_mid": _im, "count": _new_cnt}
             else:
                 resp = {"ok": False, "error": "invalid item_mid or count"}
+            data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
+
+        # ---- GET/POST /gm/api/venus_board → 维纳斯图板全解锁 / 重置 ----
+        if p == "/gm/api/venus_board" and method in ("GET", "POST"):
+            if method == "GET":
+                resp = {"ok": True}
+                resp.update(venus_stats())
+            else:
+                _vact = (req or {}).get("action")
+                if _vact == "unlock_all":
+                    _vnew = venus_unlock_all(grant=True)
+                    resp = {"ok": True, "new_panels": _vnew}
+                    resp.update(venus_stats())
+                elif _vact == "reset":
+                    _vst2 = venus_state()
+                    _vst2["opened"] = {}
+                    _vst2["seen"] = {}
+                    # 注意: 不重置 granted —— 重开面板不应重复发奖
+                    _vst2["maxed_at"] = None
+                    _vst2["rewards_granted"] = False
+                    _save_state()
+                    resp = {"ok": True}
+                    resp.update(venus_stats())
+                else:
+                    resp = {"ok": False, "error": "unknown action"}
             data = json.dumps(resp, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -6393,21 +7890,121 @@ class Handler(BaseHTTPRequestHandler):
         # 副作用: 日常/每周任务也被标记完成 (用户暂接受)
         if path.startswith("/v1/mission") and method in ("GET", "POST"):
             import copy as _cp_mission
+
+            def _sanitize_mission_list(_ml):
+                # 2026-11-11: 剔除会让客户端任务面板空指针闪退的条目
+                #   ① 黑名单 (13446, 见 MISSION_MID_BLOCKLIST 注释)
+                #   ② mission_mid 非法: <=0 / 非整数 / 不在 MissionData 主数据里
+                #      抓包池 /v1/mission/7 每份最后一条都是 mission_mid=0, 必剔
+                if not isinstance(_ml, list):
+                    return _ml
+                _kept, _drop = [], []
+                for _t in _ml:
+                    if not isinstance(_t, dict):
+                        continue
+                    if _mission_mid_ok(_t.get("mission_mid")):
+                        _kept.append(_t)
+                    else:
+                        _drop.append(_t.get("mission_mid"))
+                if _drop:
+                    log_write(f"  [MISSION] {path} 剔除非法任务 {len(_drop)} 条 "
+                              f"{_drop[:5]} (总 {len(_ml)} → {len(_kept)})\n")
+                return _kept
+
+            # 2026-11-11b: 领奖请求结构只记一次 (现在 /mission/reward 仍走抓包轮换,
+            #   返回的奖励与实际领的任务无关且不落库; 记下真实请求体后再做成"按任务发奖")
+            if path == "/v1/mission/reward" and req and not STATE.get("_mission_reward_req_logged"):
+                STATE["_mission_reward_req_logged"] = True
+                log_write(f"  [MISSION] reward 请求样本: "
+                          f"{json.dumps(req, ensure_ascii=False)[:500]}\n")
+
+            # 2026-11-11e: /v1/mission/multiple 必须按请求里的 mission_ids 逐面板合并!
+            #   客户端的 mission_ids 是【面板号】不是类别号, 一次要一批面板:
+            #     "1,2" → /mission/1 + /mission/2 = 69 条, "3,4" → 162, "5,6" → 82, "7" → 1011。
+            #   旧实现用写死的 {"1,2":0,"3,4":1,"5,6":2,"7":3} 索引取样本: 任何别的组合
+            #   (如 "8,9"、"1,2,3"、"7,8" 或空参数) 都会掉进 _build_dynamic 的固定 pool[0]
+            #   (69 条, 只含 category 1/2/3/6, 永远不含 category=9 的 27 条) → 客户端
+            #   "新任岛主应援"看板查状态缺键 → 空指针闪退 (0x274e73b / Rdx=13446)。
+            #   现改为按面板号合并对应单端点 pool[0], 任意组合都能给出完整列表。
+            if path == "/v1/mission/multiple":
+                _ids = ""
+                if isinstance(req, dict):
+                    _ids = str(req.get("mission_ids") or "")
+                _toks = [t.strip() for t in _ids.replace("，", ",").split(",") if t.strip()]
+                if not _toks:
+                    # 没带 mission_ids 时给全集, 宁可多给也不能缺(缺键=闪退)
+                    _toks = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                _merged_ml = _sanitize_mission_list(_mission_panel_list(_toks))
+                if not _merged_ml:
+                    # 面板号全不认识 → 返回空数组是"缺键=闪退"的同款危险情形, 退化为全集
+                    _toks = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                    _merged_ml = _sanitize_mission_list(_mission_panel_list(_toks))
+                for _t in _merged_ml:
+                    _t["progress"] = 3
+                _base_ml = {"mission_list": _merged_ml}
+                # 合并结果若与某份抓包样本的 mid 集合完全一致, 用它做底以保留
+                # owner_checked_at_list 等附加字段(面板 "1,2" 的样本就带这个键)
+                _mset = {t["mission_mid"] for t in _merged_ml}
+                for _s in ((SERVER_DB.get("endpoints", {}) or {}).get(path) or []):
+                    if not isinstance(_s, dict):
+                        continue
+                    _sm = {x.get("mission_mid") for x in (_s.get("mission_list") or [])
+                           if isinstance(x, dict)}
+                    if _sm - {0} == _mset and len(_sm) - (1 if 0 in _sm else 0) == len(_mset):
+                        _base_ml = _cp_mission.deepcopy(_s)
+                        _base_ml["mission_list"] = _merged_ml
+                        break
+                _mid2cat_pl = {}
+                for _c, _lst in MISSION_BY_CAT.items():
+                    for _mid, _s2, _e2 in _lst:
+                        _mid2cat_pl[_mid] = _c
+                _cstat = {}
+                for _t in _merged_ml:
+                    _c = _mid2cat_pl.get(_t["mission_mid"], "?")
+                    _cstat[_c] = _cstat.get(_c, 0) + 1
+                log_write(f"  [MISSION] multiple ids={_ids or '∅'} → {len(_merged_ml)} 条 "
+                          f"(类别 {dict(sorted(_cstat.items(), key=lambda x: str(x[0])))})\n")
+                if not STATE.get("_mission_selfcheck_done"):
+                    STATE["_mission_selfcheck_done"] = True
+                    _mission_selfcheck()
+                return _base_ml
+
+            # 2026-11-11c: /v1/mission/8 /v1/mission/9 的抓包快照都是 [] (真实服务器对该账号
+            #   没有这两类常驻任务), 但客户端任务面板会去遍历本地 csv 的 category=8/9 任务
+            #   mid 并查内部状态表 → 全落空 → 第一个元素就空指针闪退(13446 是 category=9 首个)。
+            #   这里按主数据把所有该类任务以 progress=3(已完成) 下发, 把状态表补满。
+            if path in ("/v1/mission/8", "/v1/mission/9"):
+                _cat = path.rsplit("/", 1)[-1]
+                _gl = _gen_mission_list_by_category(_cat)
+                if _gl:
+                    log_write(f"  [MISSION] {path} 按类别 {_cat} 补全 {len(_gl)} 条任务"
+                              f" (首条 mid={_gl[0]['mission_mid']})\n")
+                    return {"mission_list": _gl}
+
             dyn = _build_dynamic(path, req, method)
-            if dyn is not None and isinstance(dyn, dict):
+            if dyn is not None:
+                # 2026-11-11b: /mission/8 /mission/9 的抓包本身就是 list([]), 直接原样返回;
+                #   原实现只认 dict, 非 dict 会掉到下面的 REAL_RESPONSES 分支,
+                #   对 list 调 .get() → AttributeError → 客户端收到空 {} (接口语义错)
+                if not isinstance(dyn, dict):
+                    return dyn
                 ml = dyn.get("mission_list")
                 if isinstance(ml, list):
                     resp2 = _cp_mission.deepcopy(dyn)
-                    for t in resp2.get("mission_list", []):
-                        if isinstance(t, dict):
-                            t["progress"] = 3  # 全部标记完成
+                    resp2["mission_list"] = _sanitize_mission_list(resp2.get("mission_list", []))
+                    for t in resp2["mission_list"]:
+                        t["progress"] = 3  # 全部标记完成
                     return resp2
                 return dyn
             if path in REAL_RESPONSES:
                 base = _cp_mission.deepcopy(REAL_RESPONSES[path])
+                if not isinstance(base, dict):
+                    # 同上: /mission/8 在 REAL_RESPONSES 里是 list, 不能再 .get()
+                    return base
                 ml = base.get("mission_list")
                 if isinstance(ml, list):
-                    for t in ml:
+                    base["mission_list"] = _sanitize_mission_list(ml)
+                    for t in base["mission_list"]:
                         if isinstance(t, dict):
                             t["progress"] = 3
                     return base
@@ -6651,7 +8248,7 @@ class Handler(BaseHTTPRequestHandler):
             if _r is not None:
                 return _r
         # ---- 状态叠加: 主女孩 / 房间 / 女孩列表注入当前STATE ----
-        ov = _apply_state_overlay(path, method)
+        ov = _apply_state_overlay(path, method, req)
         if ov is not None:
             return ov
         # 动态响应引擎: 私服版全量抓取的 295 个端点 (main_girl/gacha/quest/任务/商店等)
@@ -6722,4 +8319,32 @@ def run(port):
 if __name__ == "__main__":
     if os.path.exists(LOG): os.remove(LOG)
     _load_quest_tables()   # 2026-09-12: 加载 quest 配置表 (match_point, 评级阈值)
+    # 2026-11-13: 首次启动自动把每个女孩的维纳斯图板解锁到最大, 并把看板奖励写进背包。
+    #   只执行一次 (bootstrap_done); 之后用 GM 面板「解锁全部 / 重置进度」控制。
+    try:
+        if VENUS_PANEL_ROWS and not venus_state().get("bootstrap_done"):
+            print("[venus] 首次启动: 解锁全部女孩图板并发放看板奖励 ...")
+            _vn_first = venus_unlock_all(grant=True)
+            venus_state()["bootstrap_done"] = True
+            _flush_state()
+            print(f"[venus] 完成: 新增 {_vn_first} 块看板")
+    except Exception as _vn_ex:
+        print(f"[venus] 自动解锁失败: {_vn_ex}")
+    # 2026-11-13: 亲爱度报酬一次性迁移。
+    #   旧存档里 accepted_level 已推进到 339, 但客户端弹窗没有奖励列表(响应缺 affection_levelup_reward_list)。
+    #   这里把"已发等级"记进 affection_granted 并把 accepted_level 归零, 让玩家重新点「全部领取」
+    #   就能看到完整的奖励列表, 已发过的等级不会重复进包。
+    try:
+        if STATE.get("affection_accepted") and not isinstance(STATE.get("affection_granted"), dict):
+            _mig_gr = {}
+            for _mg_k, _mg_v in list(STATE["affection_accepted"].items()):
+                _mig_gr[_mg_k] = list(range(1, int(_mg_v or 0) + 1))
+            STATE["affection_granted"] = _mig_gr
+            STATE["affection_accepted"] = {}
+            _save_state()      # 标记 dirty
+            _flush_state()     # 立即落盘, 方便核对
+            print(f"[affection] 迁移完成: {len(_mig_gr)} 个女孩已发等级已记账, accepted_level 归零")
+    except Exception as _mg_ex:
+        print(f"[affection] 迁移失败: {_mg_ex}")
+
     run(443)

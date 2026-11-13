@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 tray_dialogs.py — 托盘右键菜单弹出的对话框 (独立进程)
-用法: pythonw tray_dialogs.py {status|log}
+用法: pythonw tray_dialogs.py {status|log|gmlink}
   status : 服务器/hosts 状态 (自动刷新)
   log    : full_server.log 实时滚动
-(2026-09-18: 时刻控制编辑器移除, 只剩 status/log)
+  gmlink : 未安装 Chrome 时, 提示 GM 面板链接 (可复制 / 用默认浏览器打开)
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tkinter as tk
 from tkinter import scrolledtext
+import webbrowser
 import tray_app
 
 def show_status():
@@ -43,10 +44,54 @@ def show_log():
     refresh()
     root.mainloop()
 
+def show_gmlink():
+    """未检测到 Chrome 时的提示: 展示 GM 链接, 可复制或用默认浏览器打开"""
+    url = tray_app.GM_URL
+    root = tk.Tk()
+    root.title("DOAXVV GM 面板")
+    root.geometry("560x200")
+    root.configure(bg="#222")
+    root.resizable(False, False)
+
+    tk.Label(root, text="未检测到 Chrome 浏览器", bg="#222", fg="#ffcc66",
+             font=("Microsoft YaHei", 12, "bold")).pack(pady=(16, 4))
+    tk.Label(root, text="请复制下面的链接, 用任意浏览器打开 GM 面板：",
+             bg="#222", fg="#ccc", font=("Microsoft YaHei", 10)).pack()
+
+    var = tk.StringVar(value=url)
+    ent = tk.Entry(root, textvariable=var, font=("Consolas", 11), justify="center",
+                   bg="#111", fg="#7fd1ff", insertbackground="#7fd1ff", relief="flat")
+    ent.pack(fill="x", padx=18, pady=10, ipady=5)
+    ent.select_range(0, "end")
+    ent.focus_set()
+
+    status = tk.Label(root, text="", bg="#222", fg="#7CFC98", font=("Microsoft YaHei", 9))
+    status.pack()
+
+    def copy_link():
+        root.clipboard_clear()
+        root.clipboard_append(url)
+        root.update()
+        status.config(text="已复制到剪贴板")
+
+    def open_default():
+        webbrowser.open(url)
+
+    bar = tk.Frame(root, bg="#222")
+    bar.pack(pady=8)
+    for text, cmd in (("复制链接", copy_link), ("用默认浏览器打开", open_default), ("关闭", root.destroy)):
+        tk.Button(bar, text=text, command=cmd, width=16, relief="flat",
+                  bg="#2f3640", fg="#eee", activebackground="#3d4655",
+                  activeforeground="#fff", cursor="hand2").pack(side="left", padx=6)
+
+    root.mainloop()
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "status"
     if mode == "log":
         show_log()
+    elif mode == "gmlink":
+        show_gmlink()
     else:
         show_status()
 

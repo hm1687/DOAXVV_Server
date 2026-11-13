@@ -1,745 +1,1768 @@
 <!DOCTYPE html>
+<!--
+  DOAXVV 玩家服务 / GM 面板 (新面板)
+  2026-11-12: 采用新版「玩家服务」面板的视觉样式重写为 DOAXVV 本地服务器专用 GM 面板。
+  覆盖旧面板全部能力（发放 / 看板娘 / 扭蛋 / 日志 / 状态重置），已清除旧快照中的全部示例数据。
+-->
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DOAXVV GM Panel</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title id="page-title" data-i18n="page.title">DOAXVV 玩家服务</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;padding:0}
-.header{background:#16213e;padding:12px 24px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #0f3460}
-.header h1{font-size:20px;color:#e94560}
-.header .status{font-size:13px;color:#53d769;margin-left:auto}
-.tabs{display:flex;background:#0f3460;overflow-x:auto}
-.tabs button{background:none;border:none;color:#a0a0a0;padding:12px 20px;font-size:14px;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;transition:.2s}
-.tabs button:hover{color:#fff;background:rgba(255,255,255,.05)}
-.tabs button.active{color:#e94560;border-bottom-color:#e94560}
-.tab-content{padding:24px;max-width:900px;margin:0 auto}
-.tab-page{display:none}
-.tab-page.active{display:block}
-.card{background:#16213e;border-radius:8px;padding:20px;margin-bottom:16px}
-.card h2{font-size:16px;color:#e94560;margin-bottom:16px}
-.field{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-.field label{width:140px;font-size:14px;color:#a0a0a0;text-align:right}
-.field input,.field select{flex:1;background:#1a1a2e;border:1px solid #333;color:#e0e0e0;padding:8px 12px;border-radius:4px;font-size:14px}
-.field input:focus,.field select:focus{outline:none;border-color:#e94560}
-.btn{background:#e94560;color:#fff;border:none;padding:8px 20px;border-radius:4px;font-size:14px;cursor:pointer;transition:.2s}
-.btn:hover{background:#c73650}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-.btn-secondary{background:#0f3460}
-.btn-secondary:hover{background:#1a4a80}
-.btn-sm{padding:4px 12px;font-size:12px}
-.info{font-size:13px;color:#53d769;margin-top:8px}
-.error{font-size:13px;color:#ff6b6b;margin-top:8px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-table th{background:#0f3460;padding:8px;text-align:left;color:#a0a0a0}
-table td{padding:8px;border-bottom:1px solid #1a1a2e}
-table tr:hover{background:rgba(255,255,255,.03)}
-.badge{display:inline-block;background:#0f3460;padding:2px 8px;border-radius:10px;font-size:12px;color:#53d769}
-.badge-off{background:#333;color:#666}
-.log-box{background:#0d1117;border:1px solid #333;border-radius:4px;padding:12px;font-family:'Consolas',monospace;font-size:12px;max-height:500px;overflow-y:auto;white-space:pre-wrap;color:#8b949e}
-.girl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
-.girl-card{background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:12px;cursor:pointer;transition:.2s}
-.girl-card:hover{border-color:#e94560}
-.girl-card.selected{border-color:#e94560;background:rgba(233,69,96,.1)}
-.girl-card .name{font-size:14px;font-weight:bold}
-.girl-card .mid{font-size:12px;color:#666}
-.loading{text-align:center;padding:40px;color:#666}
-.retry-btn{background:#e94560;color:#fff;border:none;padding:10px 24px;border-radius:4px;font-size:14px;cursor:pointer;margin-top:12px}
-.retry-btn:hover{background:#c73650}
-.err-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);display:none;z-index:999;align-items:center;justify-content:center;flex-direction:column}
-.err-overlay.show{display:flex}
-.err-overlay h2{color:#ff6b6b;margin-bottom:8px}
-.err-overlay p{color:#a0a0a0;font-size:14px;max-width:400px;text-align:center;line-height:1.6}
+:root {
+  --ui-accent: #2f54eb;
+  --ui-accent-soft: #eef2ff;
+  --ui-text: #202124;
+  --ui-muted: #686a6f;
+  --ui-surface: #fff;
+  --ui-page: #f7f7f9;
+  --ui-separator: rgba(60, 60, 67, 0.12);
+  --ui-radius-control: 6px;
+  --ui-radius-card: 14px;
+  --ui-shadow-card: 0 0 0 1px var(--ui-separator), 0 1px 2px #0000000a, 0 4px 16px #0000000a;
+  --ui-shadow-float: 0 6px 16px #00000014, 0 18px 48px #0000001f;
+  --ui-blur: saturate(180%) blur(20px);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+  font-size: 14px; line-height: 1.6; color: var(--ui-text); background: var(--ui-page);
+  font-synthesis: none; -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, select { font: inherit; }
+button, a { touch-action: manipulation; }
+button { cursor: pointer; }
+a { color: var(--ui-accent); text-decoration: none; }
+[hidden] { display: none !important; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { font-size: 26px; line-height: 1.3; font-weight: 650; }
+h2 { font-size: 19px; font-weight: 600; margin-bottom: 8px; }
+h3 { font-size: 14px; margin-bottom: 6px; }
+p { max-width: 78ch; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; box-shadow: 0 0 0 4px #2f54eb24; }
+.muted { color: var(--ui-muted); }
+small { display: block; font-size: 12px; margin-top: 6px; }
+.topbar {
+  height: 68px; border-bottom: 1px solid var(--ui-separator);
+  background: #ffffffc9; backdrop-filter: var(--ui-blur);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 max(28px, calc((100vw - 1280px) / 2)); gap: 20px;
+  position: sticky; top: 0; z-index: 3;
+}
+.brand { display: flex; align-items: center; gap: 12px; color: var(--ui-text); font-size: 19px; font-weight: 650; white-space: nowrap; }
+.brand-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--ui-accent); color: #fff; font-size: 17px; font-weight: 700; flex-shrink: 0; }
+.brand-sub { font-weight: 400; margin-left: 8px; font-size: 15px; color: var(--ui-muted); }
+.top-actions { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.conn { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ui-muted); white-space: nowrap; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #b6b8bd; flex-shrink: 0; }
+.conn.ok .conn-dot { background: #27ae60; }
+.conn.ok { color: #1e8449; }
+.conn.bad .conn-dot { background: #d64545; }
+.conn.bad { color: #b03236; }
+.language-switch { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.language-switch label { font-size: 12px; color: var(--ui-muted); }
+.language-switch select { width: auto; max-width: 140px; min-height: 36px; padding: 6px 8px; }
+.surface { background: var(--ui-surface); border-radius: var(--ui-radius-card); box-shadow: var(--ui-shadow-card); }
+.button {
+  display: inline-flex; justify-content: center; align-items: center;
+  min-height: 40px; padding: 8px 18px; border: 1px solid #d9d9d9;
+  border-radius: var(--ui-radius-control); background: white; color: var(--ui-text);
+  white-space: normal; text-align: center; font-weight: 500;
+}
+.button:hover { color: var(--ui-accent); border-color: #adbdf9; background: #f5f7ff; }
+.button.primary { background: var(--ui-accent); color: #fff; border-color: var(--ui-accent); }
+.button.primary:hover { background: #2444c8; color: #fff; }
+.button.danger { color: #fff; background: #a33242; border-color: #a33242; }
+.button.danger:hover { background: #842736; color: #fff; }
+.button.sm { min-height: 32px; padding: 5px 12px; font-size: 12px; }
+.text-button { border: 0; background: none; color: var(--ui-accent); padding: 6px 0; min-height: 32px; }
+.workspace {
+  max-width: 1280px; margin: 32px auto 0; padding: 0 28px;
+  display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 28px;
+  min-height: calc(100vh - 180px); align-items: start;
+}
+.sidebar { padding: 18px 12px; background: #ffffffc9; backdrop-filter: var(--ui-blur); position: sticky; top: 100px; }
+.sidebar-title { padding: 8px 14px 18px; color: var(--ui-muted); font-size: 12px; }
+.sidebar nav { display: grid; gap: 8px; }
+.nav-item { display: flex; align-items: center; gap: 12px; border: 0; background: none; text-align: left; padding: 12px 14px; border-radius: 8px; color: var(--ui-muted); white-space: normal; }
+.nav-item .nav-icon { font-size: 19px; width: 20px; text-align: center; flex-shrink: 0; }
+.nav-item.active { background: var(--ui-accent-soft); color: var(--ui-accent); font-weight: 600; }
+.sidebar-foot { margin: 32px 14px 4px; border-top: 1px solid var(--ui-separator); padding-top: 12px; }
+.sidebar-foot .text-button { color: var(--ui-muted); font-size: 13px; }
+.main-content { min-width: 0; }
+.account-card { display: flex; align-items: center; gap: 16px; padding: 18px 24px; margin-bottom: 22px; }
+.account-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.avatar { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; background: var(--ui-accent-soft); color: var(--ui-accent); font-size: 20px; font-weight: 700; flex-shrink: 0; }
+.account-info { min-width: 0; flex: 1; }
+.account-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.account-title h1 { font-size: 18px; margin: 0; }
+.account-info p { margin: 2px 0 0; font-size: 12px; }
+.badge { display: inline-block; background: #eaf7ee; color: #1e8449; border-radius: 10px; padding: 2px 9px; font-size: 12px; font-weight: 500; }
+.badge.off { background: #f0f0f2; color: var(--ui-muted); }
+.notice { border-radius: 8px; padding: 12px 16px; background: var(--ui-accent-soft); color: #344da2; margin: 0 0 22px; font-size: 13px; white-space: pre-line; }
+.notice.error { background: #fef0f0; color: #b03236; }
+.reward-layout { display: grid; grid-template-columns: minmax(0, 1fr) 255px; gap: 24px; align-items: start; }
+.reward-panel { padding: 28px; }
+.section-heading { margin-bottom: 24px; }
+.section-heading p { font-size: 13px; margin: 0; }
+.target-box { border: 1px solid var(--ui-separator); border-radius: 10px; padding: 14px 18px; margin: 0 0 20px; background: #fbfbfc; min-width: 0; }
+.target-box legend { font-size: 12px; color: var(--ui-muted); padding: 0 6px; }
+.target-box p { margin: 6px 0 0; font-size: 12px; }
+.field-label { display: block; font-weight: 500; margin: 18px 0 8px; }
+input, select { width: 100%; min-height: 40px; padding: 8px 11px; border: 1px solid #d9d9d9; background: white; color: var(--ui-text); border-radius: var(--ui-radius-control); }
+input::placeholder { color: #6b6c71; }
+input[type="checkbox"] { width: auto; min-height: 0; margin: 0; }
+.inline-controls { display: flex; gap: 8px; }
+.inline-controls input { min-width: 0; }
+.inline-controls .button { flex-shrink: 0; white-space: nowrap; }
+/* 表格行内操作按钮：始终左右排布，不换行（卡池组 / 库存等） */
+.row-actions { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.row-actions .button { flex: 0 0 auto; white-space: nowrap; }
+.col-actions { white-space: nowrap; width: 1%; }
+.col-actions .button { white-space: nowrap; }
+.catalog-pagination { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; flex-wrap: wrap; margin-top: 10px; }
+.catalog-pagination > div { display: flex; gap: 12px; }
+.form-footer { border-top: 1px solid var(--ui-separator); padding-top: 20px; margin-top: 26px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.form-footer p { margin: 0; font-size: 12px; }
+.form-footer > .button { flex-shrink: 0; max-width: 100%; }
+.help-panel { padding: 26px 22px; color: var(--ui-muted); font-size: 13px; }
+.help-panel h2 { font-size: 16px; color: var(--ui-text); }
+.help-icon { display: grid; place-items: center; width: 40px; height: 40px; color: var(--ui-accent); background: var(--ui-accent-soft); font-size: 24px; border-radius: 10px; margin-bottom: 18px; }
+.help-panel ol { padding-left: 19px; line-height: 2.2; margin-bottom: 24px; }
+.help-note { border-top: 1px solid var(--ui-separator); padding-top: 20px; }
+.help-note h3 { color: var(--ui-text); }
+.card { padding: 24px 26px; margin-top: 22px; }
+.card h2 { margin-bottom: 6px; }
+.card > p.muted { font-size: 13px; margin-bottom: 18px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.card-head h2 { margin: 0; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 18px; }
+.grid-2 label { display: block; font-size: 13px; color: var(--ui-muted); margin-bottom: 6px; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+.stat { border: 1px solid var(--ui-separator); border-radius: 10px; padding: 14px 16px; background: #fbfbfc; }
+.stat .k { font-size: 12px; color: var(--ui-muted); }
+.stat .v { font-size: 20px; font-weight: 650; margin-top: 4px; word-break: break-all; }
+.table-scroll { overflow-x: auto; }
+/* 长列表统一收进可滚动的小窗口，表头吸顶 */
+.scroll-window { max-height: 320px; overflow: auto; border: 1px solid var(--ui-separator); border-radius: 10px; margin-top: 14px; }
+.scroll-window.sm { max-height: 220px; }
+.scroll-window thead th { position: sticky; top: 0; z-index: 1; background: #f4f6fb; box-shadow: inset 0 -1px 0 var(--ui-separator); }
+.scroll-window td, .scroll-window th { padding: 8px 14px; }
+.list-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--ui-muted); }
+.page-controls { display: flex; align-items: center; gap: 10px; }
+.page-controls .text-button:disabled { opacity: .4; cursor: default; }
+.vis-toggle { display: inline-flex; align-items: center; }
+table { border-collapse: collapse; text-align: left; width: 100%; font-size: 13px; }
+th { font-weight: 500; background: #fafafa; color: var(--ui-muted); white-space: nowrap; }
+td, th { padding: 11px 16px; border-bottom: 1px solid var(--ui-separator); }
+td.num { font-variant-numeric: tabular-nums; }
+.pagination { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding-top: 16px; font-size: 12px; flex-wrap: wrap; }
+.pagination > div { display: flex; align-items: center; gap: 12px; }
+.pagination .button { padding: 5px 10px; min-height: 32px; }
+.girl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.girl-card { border: 1px solid var(--ui-separator); border-radius: 10px; padding: 12px 14px; background: #fbfbfc; cursor: pointer; text-align: left; }
+.girl-card:hover { border-color: #adbdf9; background: #f5f7ff; }
+.girl-card.selected { border-color: var(--ui-accent); background: var(--ui-accent-soft); }
+.girl-card .name { font-size: 14px; font-weight: 600; }
+.girl-card .mid { font-size: 12px; color: var(--ui-muted); }
+.log-box { background: #fbfbfc; border: 1px solid var(--ui-separator); border-radius: 10px; padding: 14px; font-family: Consolas, "Courier New", monospace; font-size: 12px; max-height: 420px; overflow: auto; white-space: pre-wrap; color: #444; }
+.chip { display: inline-block; background: var(--ui-accent-soft); color: #344da2; border-radius: 8px; padding: 2px 9px; font-size: 12px; }
+.danger-zone { border: 1px solid #efc9ce; background: #fffafa; border-radius: 12px; padding: 20px 22px; margin-top: 22px; }
+.danger-zone h2 { color: #a33242; }
+.hint-warn { background: #fff8e8; color: #8a6516; border-radius: 8px; padding: 10px 14px; font-size: 12px; margin: 12px 0; }
+.page-footer { color: var(--ui-muted); text-align: center; padding: 26px 20px; font-size: 12px; }
+dialog { border: 0; border-radius: 16px; padding: 30px; box-shadow: var(--ui-shadow-float); max-width: 480px; width: calc(100% - 32px); color: var(--ui-text); }
+dialog::backdrop { background: #0006; backdrop-filter: blur(3px); }
+dialog p { white-space: pre-line; overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 26px; }
+.reset-ack { display: flex; align-items: flex-start; gap: 10px; margin: 22px 0 0; }
+.reset-ack input { margin-top: 4px; }
+.err-overlay { position: fixed; inset: 0; background: #ffffffee; display: none; z-index: 9; align-items: center; justify-content: center; flex-direction: column; text-align: center; padding: 24px; }
+.err-overlay.show { display: flex; }
+.err-overlay h2 { color: #a33242; }
+.err-overlay p { color: var(--ui-muted); font-size: 14px; max-width: 460px; line-height: 1.8; }
+/* GM 会话断开遮罩：压在连接失败遮罩之上（托盘「关闭GM」时显示，不关浏览器窗口） */
+#gmoff-overlay { z-index: 10; }
+#gmoff-overlay h2 { color: #2f6b86; }
+.subtle-divider { border-top: 1px solid var(--ui-separator); margin: 24px 0; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar input[type="text"], .toolbar input[type="search"] { width: auto; flex: 1; min-width: 160px; }
+@media (max-width: 1050px) {
+  .workspace { grid-template-columns: 170px minmax(0, 1fr); gap: 22px; padding: 0 22px; }
+  .reward-layout { grid-template-columns: minmax(0, 1fr); }
+  .help-panel { display: none; }
+  .reward-panel { padding: 24px; }
+  .conn { display: none; }
+}
+@media (max-width: 650px) {
+  .topbar { padding: 10px 18px; height: auto; min-height: 60px; flex-wrap: wrap; gap: 10px; }
+  .brand { min-width: 0; max-width: 100%; }
+  .brand-sub { display: block; margin-left: 0; font-size: 12px; white-space: normal; }
+  .top-actions { margin-left: auto; }
+  .language-switch label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .language-switch select { max-width: 120px; }
+  .workspace { display: block; margin: 20px auto 0; padding: 0 16px; }
+  .sidebar { position: static; padding: 10px 12px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .sidebar-title, .sidebar-foot { display: none; }
+  .sidebar nav { display: flex; gap: 4px; min-width: 0; flex-wrap: wrap; }
+  .nav-item { padding: 8px 10px; gap: 5px; }
+  .nav-item .nav-icon { display: none; }
+  .reward-panel, .card { padding: 22px 18px; }
+  .form-footer { flex-direction: column; align-items: stretch; }
+  .form-footer .button { width: 100%; }
+  td, th { padding: 10px 12px; }
+}
 </style>
 </head>
 <body>
-<div class="header">
-  <h1>🎲 DOAXVV GM Panel</h1>
-  <span class="status" id="connStatus">连接中...</span>
-</div>
-<div class="err-overlay" id="errOverlay">
-  <h2>⚠ 服务器未连接</h2>
-  <p>无法连接到游戏服务器 (127.0.0.1:443)。<br>请确认服务器已启动：<br><code>DOAXVV_Server\GM\启动GM.bat</code></p>
-  <button class="retry-btn" onclick="loadState()">重试连接</button>
-</div>
-<div class="tabs">
-  <button class="active" onclick="showTab('girl',this)">看板娘</button>
-  <button onclick="showTab('wallet',this)">钱包</button>
-  <button onclick="showTab('items',this)">物品</button>
-  <button onclick="showTab('giftbox',this)">邮箱</button>
-  <button onclick="showTab('bonus',this)">签到</button>
-  <button onclick="showTab('log',this)">日志</button>
-  <button onclick="showTab('gacha',this)">扭蛋</button>
-</div>
-<div class="tab-content">
-
-<!-- ===== 看板娘 ===== -->
-<div class="tab-page active" id="tab-girl">
-  <div class="card">
-    <h2>当前看板娘</h2>
-    <div class="field"><label>主女孩 (main_girl_mid)</label><span id="curMainGirl" class="badge">-</span></div>
-    <div class="field"><label>已配置装备的女孩</label><span id="girlCount" class="badge">-</span></div>
-  </div>
-  <div class="card">
-    <h2>切换看板娘</h2>
-    <div class="girl-grid" id="girlGrid"></div>
-  </div>
-  <div class="card" id="equipCard" style="display:none">
-    <h2>装备管理 — <span id="equipGirlName"></span></h2>
-    <div class="field"><label>泳装 (swimsuit)</label><input type="number" id="eqSwimsuit" placeholder="item_mid"></div>
-    <div class="field"><label>手饰 (accessory_arm)</label><input type="number" id="eqArm" placeholder="item_mid"></div>
-    <div class="field"><label>面饰 (accessory_head)</label><input type="number" id="eqHead" placeholder="item_mid (留空=清除)"></div>
-    <div style="margin-top:12px"><button class="btn" onclick="saveEquip()">保存装备</button></div>
-    <div class="info" id="equipMsg"></div>
-  </div>
-</div>
-
-<!-- ===== 钱包 ===== -->
-<div class="tab-page" id="tab-wallet">
-  <div class="card">
-    <h2>钱包管理</h2>
-    <div class="field"><label>金币 (zack_money)</label><input type="number" id="wZack"></div>
-    <div class="field"><label>免费V石 (free_vstone)</label><input type="number" id="wFreeVstone"></div>
-    <div class="field"><label>客人点数 (guest_point)</label><input type="number" id="wGuest"></div>
-    <div class="field"><label>VIP点数 (vip_point)</label><input type="number" id="wVip"></div>
-    <div class="field"><label>付费V石 (paid_vstone)</label><input type="number" id="wPaid"></div>
-    <div class="field"><label>VIP币 (vip_coin)</label><input type="number" id="wVipCoin"></div>
-    <div style="margin-top:12px"><button class="btn" onclick="saveWallet()">保存钱包</button></div>
-    <div class="info" id="walletMsg"></div>
-  </div>
-</div>
-
-<!-- ===== 物品 ===== -->
-<div class="tab-page" id="tab-items">
-  <div class="card">
-    <h2>发放物品</h2>
-    <div class="field"><label>物品ID (item_mid)</label><input type="number" id="addItemMid" placeholder="如 35465"></div>
-    <div class="field"><label>数量</label><input type="number" id="addItemCount" value="1" min="1"></div>
-    <div style="margin-top:12px">
-      <button class="btn" onclick="addItem('add')">增加</button>
-      <button class="btn btn-secondary" onclick="addItem('set')">设置</button>
-      <button class="btn btn-secondary" onclick="addItem('remove')">删除</button>
+  <header class="topbar">
+    <div class="brand"><span class="brand-icon" aria-hidden="true">D</span><span>DOAXVV <span class="brand-sub" data-i18n="page.brand">玩家服务</span></span></div>
+    <div class="top-actions">
+      <span class="conn" id="conn"><span class="conn-dot"></span><span id="conn-text">连接中…</span></span>
+      <div class="language-switch"><label for="language-select" data-i18n="language.label">语言</label><select id="language-select"><option value="zh-CN" lang="zh-CN" selected>简体中文</option><option value="zh-TW" lang="zh-TW">繁體中文</option><option value="en" lang="en">English</option><option value="ja" lang="ja">日本語</option></select></div>
     </div>
-    <div class="info" id="itemMsg"></div>
-  </div>
-  <div class="card">
-    <h2>维纳斯货币发放</h2>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">维纳斯商店专用消耗品货币，每女孩不同。选择货币类型并发放到当前账号</p>
-    <div class="field"><label>货币类型</label>
-      <select id="venusCoinType">
-        <option value="35103">35103 — 海咲</option>
-        <option value="35104">35104 — 环</option>
-        <option value="35105">35105 — 货币5</option>
-        <option value="35106">35106 — 货币6</option>
-        <option value="35107">35107 — 货币7</option>
-        <option value="35108">35108 — 货币8</option>
-        <option value="35109">35109 — 菲欧娜</option>
-        <option value="35110">35110 — 货币10</option>
-        <option value="35111">35111 — 货币11</option>
-        <option value="35112">35112 — 筑紫</option>
-        <option value="35125">35125 — 限定</option>
-        <option value="35178">35178 — 未知</option>
-      </select>
-    </div>
-    <div class="field"><label>数量</label><input type="number" id="venusCoinCount" value="999" min="1"></div>
-    <div style="margin-top:12px"><button class="btn" onclick="sendVenusCoin()">发放</button></div>
-    <div class="info" id="venusCoinMsg"></div>
-  </div>
-  <div class="card">
-    <h2>当前库存 (非零物品)</h2>
-    <table id="itemTable"><thead><tr><th>item_mid</th><th>数量</th><th>类型</th></tr></thead><tbody></tbody></table>
-  </div>
-</div>
+  </header>
 
-<!-- ===== 邮箱 ===== -->
-<div class="tab-page" id="tab-giftbox">
-  <div class="card">
-    <h2>邮箱状态</h2>
-    <div class="field"><label>总邮件数</label><span id="gbTotal" class="badge">-</span></div>
-    <div class="field"><label>已领取</label><span id="gbClaimed" class="badge">-</span></div>
-    <div class="field"><label>未领取 (红点)</label><span id="gbUnclaimed" class="badge">-</span></div>
-    <div class="field"><label>自定义邮件</label><span id="gbCustom" class="badge">-</span></div>
-  </div>
-  <div class="card">
-    <h2>发送物品到邮箱 (GM 自定义邮件)</h2>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">创建一封自定义邮件发送到玩家邮箱，客户端打开邮箱即可领取</p>
-    <div class="field"><label>物品ID (item_mid)</label><input type="number" id="gmMailItem" placeholder="如 35023 (金币) 或 35465 (消耗品)"></div>
-    <div class="field"><label>数量</label><input type="number" id="gmMailCount" value="1" min="1"></div>
-    <div class="field"><label>邮件类型</label>
-      <select id="gmMailType">
-        <option value="10">普通 (10)</option>
-        <option value="11">活动 (11)</option>
-        <option value="13">特殊 (13)</option>
-      </select>
-    </div>
-    <div class="field"><label>留言</label><input type="text" id="gmMailMsg" value="GM发放" placeholder="可选留言"></div>
-    <div style="margin-top:12px">
-      <button class="btn" onclick="sendMail()">发送邮件</button>
-      <button class="btn btn-secondary" onclick="clearCustomMails()">清除全部自定义邮件</button>
-    </div>
-    <div class="info" id="mailMsg"></div>
-  </div>
-  <div class="card">
-    <h2>重置邮箱</h2>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">清空已领取列表，所有邮件重新变为可领取状态</p>
-    <button class="btn" onclick="resetModule('giftbox')">重置邮箱</button>
-    <div class="info" id="giftboxMsg"></div>
-  </div>
-</div>
-
-<!-- ===== 签到 ===== -->
-<div class="tab-page" id="tab-bonus">
-  <div class="card">
-    <h2>签到状态</h2>
-    <div class="field"><label>每月签到</label><span id="bonusMonthly" class="badge">-</span></div>
-  </div>
-  <div class="card">
-    <h2>重置签到</h2>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">清除每月签到领取记录，下次登录可重新领取</p>
-    <button class="btn" onclick="resetModule('login_bonus')">重置签到</button>
-    <div class="info" id="bonusMsg"></div>
-  </div>
-  <div class="card">
-    <h2>重置公告</h2>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">清除已读公告记录，下次登录重新弹公告</p>
-    <button class="btn btn-secondary" onclick="resetModule('information')">重置公告</button>
-    <div class="info" id="infoMsg"></div>
-  </div>
-</div>
-
-<!-- ===== 日志 ===== -->
-<div class="tab-page" id="tab-log">
-  <div class="card">
-    <h2>服务器日志 (最后100行) <button class="btn btn-sm" onclick="loadLog()">刷新</button></h2>
-    <div class="log-box" id="logBox">点击刷新加载日志...</div>
-  </div>
-</div>
-
-<!-- ===== 扭蛋 ===== -->
-<div class="tab-page" id="tab-gacha">
-  <!-- 卡片 A: 全局爆率与保底配置 -->
-  <div class="card">
-    <h2>全局爆率与保底配置</h2>
-    <div class="field"><label>SSR权重</label><input type="number" id="gcSSR" value="5"></div>
-    <div class="field"><label>SR权重</label><input type="number" id="gcSR" value="15"></div>
-    <div class="field"><label>R权重</label><input type="number" id="gcR" value="80"></div>
-    <p style="color:#e8c55c;font-size:13px;margin-bottom:12px">⚠ SSR+SR+R 总和必须=100（百分比爆率，如 SSR=50/SR=40/R=10 → 十连大致 5SSR/4SR/1R）</p>
-    <div class="field"><label>硬保底阈值 (hard_pity)</label><input type="number" id="gcHardPity" value="0"></div>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">连续N抽不出SSR则必出SSR，0=禁用</p>
-    <div class="field"><label>软保底起点 (soft_pity_start)</label><input type="number" id="gcSoftStart" value="0"></div>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">软保底从该抽数开始生效，0=禁用</p>
-    <div class="field"><label>软保底增量 (soft_pity_increment)</label><input type="number" id="gcSoftIncr" value="6"></div>
-    <div class="field"><label>阶梯天井 (enable_stepup)</label><input type="checkbox" id="gcStepup" checked></div>
-    <div class="field"><label>SSR自动锁定 (ssr_auto_lock)</label><input type="checkbox" id="gcSSRLock"></div>
-    <div style="margin-top:12px"><button class="btn" onclick="saveGachaConfig()">保存配置</button></div>
-    <div class="info" id="gachaConfigMsg"></div>
+  <div class="err-overlay" id="err-overlay">
+    <h2 data-i18n="error.title">服务器未连接</h2>
+    <p data-i18n="error.body">无法连接到本地游戏服务器。请确认服务器已在 443 端口运行（可用 GM 目录里的「启动GM.bat」启动），然后重试。</p>
+    <button class="button primary" id="retry-connect" data-i18n="error.retry">重试连接</button>
   </div>
 
-  <!-- 卡片 B: 卡池搜索与选择 -->
-  <div class="card">
-    <h2>卡池搜索与选择</h2>
-    <div class="field">
-      <label>卡池搜索</label>
-      <input type="text" id="gachaSearchInput" placeholder="输入 gacha_mid（如 5414）">
-      <button class="btn" onclick="searchGachaPools()">搜索</button>
-    </div>
-    <table id="gachaSearchTable"><thead><tr><th>gacha_mid</th><th>max_step</th><th>有覆盖</th><th>操作</th></tr></thead><tbody></tbody></table>
-    <div class="info" id="gachaSearchMsg"></div>
+  <div class="err-overlay" id="gmoff-overlay">
+    <h2 data-i18n="gmoff.title">GM 已关闭</h2>
+    <p data-i18n="gmoff.body">托盘菜单里点「启动GM」即可重新连接。本页面会自动恢复，不需要关闭窗口。</p>
   </div>
 
-  <!-- 卡片 C: 卡池详情 (默认隐藏) -->
-  <div class="card" id="gachaPoolCard" style="display:none">
-    <h2 id="gachaPoolTitle">卡池详情</h2>
-    <div class="field"><label>当前阶梯</label><span id="gpCurStep" class="badge">-</span></div>
-    <div class="field"><label>累计抽数</label><span id="gpTotalDraws" class="badge">-</span></div>
-    <div class="field"><label>距保底剩余</label><span id="gpSinceSSR" class="badge">-</span></div>
-    <div class="field"><label>SSR权重覆盖</label><input type="number" id="gpSSR" placeholder="留空=全局"></div>
-    <div class="field"><label>SR权重覆盖</label><input type="number" id="gpSR" placeholder="留空=全局"></div>
-    <div class="field"><label>R权重覆盖</label><input type="number" id="gpR" placeholder="留空=全局"></div>
-    <p style="color:#e8c55c;font-size:13px;margin-bottom:12px">⚠ 三者总和必须=100（百分比爆率）；留空=用全局默认</p>
-    <div class="field"><label>保底覆盖 (hard_pity)</label><input type="number" id="gpHardPity" placeholder="留空=全局"></div>
-    <div style="margin-top:12px">
-      <button class="btn" onclick="saveGachaPool()">保存卡池配置</button>
-      <button class="btn btn-secondary" onclick="resetGachaPity()">重置保底</button>
-      <button class="btn btn-secondary" onclick="clearGachaPool()">清除覆盖</button>
-    </div>
-    <div class="info" id="gachaPoolMsg"></div>
+  <div id="workspace" class="workspace">
+    <aside class="sidebar surface">
+      <div class="sidebar-title" data-i18n="nav.title">管理工具</div>
+      <nav aria-label="GM 导航">
+        <button class="nav-item active" data-view="rewards" aria-current="page"><span class="nav-icon" aria-hidden="true">◇</span><span data-i18n="nav.rewards">发放奖励</span></button>
+        <button class="nav-item" data-view="girl"><span class="nav-icon" aria-hidden="true">♀</span><span data-i18n="nav.girl">看板娘</span></button>
+        <button class="nav-item" data-view="gacha"><span class="nav-icon" aria-hidden="true">⚄</span><span data-i18n="nav.gacha">扭蛋设置</span></button>
+        <button class="nav-item" data-view="history"><span class="nav-icon" aria-hidden="true">≡</span><span data-i18n="nav.history">操作记录</span></button>
+        <button class="nav-item" data-view="save"><span class="nav-icon" aria-hidden="true">↺</span><span data-i18n="nav.save">存档管理</span></button>
+      </nav>
+      <div class="sidebar-foot"><button class="text-button" id="sidebar-refresh" data-i18n="common.refresh">刷新状态</button></div>
+    </aside>
+
+    <main class="main-content">
+      <section class="account-card surface">
+        <div class="avatar" aria-hidden="true">岛</div>
+        <div class="account-info">
+          <div class="account-title"><h1 data-i18n="account.title">岛主工作台</h1><span class="badge" id="server-badge" data-i18n="account.local">本地服务器</span></div>
+          <p id="account-line">岛主 ID — · 当前看板娘 —</p>
+          <p id="server-line">DOAXVV 本地模拟服务器 · /gm/api/</p>
+        </div>
+        <div class="account-actions">
+          <button class="button" id="switch-account" data-i18n="account.switch" title="账号切换功能尚未实现">切换账号</button>
+          <button class="button" id="refresh" data-i18n="common.refresh">刷新状态</button>
+        </div>
+      </section>
+
+      <div id="notification" role="status" class="notice" hidden></div>
+
+      <!-- ===== 视图一：发放奖励 ===== -->
+      <section id="rewards-view" class="reward-layout">
+        <section class="surface reward-panel">
+          <div class="section-heading"><h2 data-i18n="reward.title">发放奖励</h2><p class="muted" data-i18n="reward.desc">选择物品与数量，可以直接加入库存，也可以发送到游戏邮箱。</p></div>
+          <form id="mail-form">
+            <fieldset class="target-box"><legend data-i18n="reward.target">接收账号</legend>
+              <div><strong id="auto-uid">岛主 ID —</strong><p class="muted" data-i18n="reward.targetNote">奖励只会发放到当前本地存档，操作会立即写入服务器状态。</p></div>
+            </fieldset>
+
+            <label class="field-label" for="reward-type" data-i18n="reward.type">物品分类</label>
+            <div class="inline-controls"><select id="reward-type" style="min-width:0"></select><button id="rename-type" class="button" type="button" data-i18n="name.edit">修改名称</button></div>
+
+            <div id="item-picker">
+              <label class="field-label" for="catalog-search" data-i18n="reward.find">查找物品</label>
+              <div class="inline-controls"><input id="catalog-search" type="search" maxlength="60" data-i18n-ph="reward.searchPh" placeholder="输入 item_mid 或分类名"><button id="catalog-button" class="button" type="button" data-i18n="common.search">搜索</button></div>
+              <label class="field-label" for="reward-id" data-i18n="reward.select">选择物品</label>
+              <div class="inline-controls"><select id="reward-id" required style="min-width:0"></select><button id="rename-item" class="button" type="button" data-i18n="name.edit">修改名称</button></div>
+              <div class="catalog-pagination"><small id="catalog-hint" class="muted">—</small><div><button id="catalog-prev" class="text-button" type="button" data-i18n="common.prev">上一页</button><button id="catalog-next" class="text-button" type="button" data-i18n="common.next">下一页</button></div></div>
+              <small class="muted" data-i18n="reward.customHint">找不到想要的物品？可在下方直接输入 item_mid。</small>
+            </div>
+
+            <div class="grid-2" style="margin-top:18px">
+              <div><label class="field-label" for="reward-count" data-i18n="reward.count" style="margin-top:0">数量</label><input id="reward-count" type="number" min="1" max="1000000" value="1" required><small id="quantity-hint" class="muted">—</small></div>
+              <div><label class="field-label" for="reward-method" data-i18n="reward.method" style="margin-top:0">发放方式</label><select id="reward-method"><option value="mail" data-i18n="reward.methodMail">发送到游戏邮箱</option><option value="set" data-i18n="reward.methodSet">设置库存数量</option></select></div>
+            </div>
+            <div class="grid-2" id="mail-extra" style="margin-top:14px">
+              <div><label class="field-label" for="mail-message" data-i18n="reward.mailMessage" style="margin-top:0">邮件留言</label><input id="mail-message" type="text" maxlength="80" value="GM发放"></div>
+              <div><label class="field-label" for="mail-type" data-i18n="reward.mailType" style="margin-top:0">邮件类型</label><select id="mail-type"><option value="10">普通 (10)</option><option value="11">活动 (11)</option><option value="13">特殊 (13)</option></select></div>
+            </div>
+            <div class="grid-2" style="margin-top:14px">
+              <div><label class="field-label" for="custom-mid" data-i18n="reward.customMid" style="margin-top:0">自定义 item_mid</label><input id="custom-mid" type="number" min="1" placeholder="留空则使用上方选中的物品"></div>
+            </div>
+            <div class="form-footer"><p class="muted" data-i18n="reward.mailHint">发放后请回到游戏查看邮箱或背包；部分改动需要重新进入对应界面才刷新。</p><button id="mail-submit" class="button primary" type="submit" data-i18n="reward.submit">发放奖励</button></div>
+          </form>
+        </section>
+
+        <aside class="help-panel surface"><span class="help-icon" aria-hidden="true">✉</span><h2 data-i18n="help.title">补给送达游戏</h2><p data-i18n="help.desc">金币、道具、泳装与各类素材，可直接写入库存，也可通过邮箱发放。</p><ol><li data-i18n="help.step1">确认物品 ID 与数量。</li><li data-i18n="help.step2">选择发放方式并确认内容。</li><li data-i18n="help.step3">回到游戏，打开邮箱或背包查看。</li></ol><div class="help-note"><h3 data-i18n="help.missing">没有收到奖励？</h3><p data-i18n="help.retry">先到「操作记录」确认发放是否成功，再刷新游戏邮箱。网络中断后可用相同内容重试。</p></div></aside>
+      </section>
+
+      <section id="rewards-stock" class="surface card">
+        <div class="card-head"><h2 data-i18n="stock.title">当前库存</h2><div class="toolbar"><input type="search" id="stock-filter" data-i18n-ph="stock.filterPh" placeholder="筛选 item_mid"><button class="button sm" id="stock-refresh" data-i18n="common.refresh">刷新</button></div></div>
+        <p class="muted" style="font-size:13px" data-i18n="stock.desc">仅显示数量大于 0 的物品，按数量降序；每页 20 条，可用下方翻页查看全部。</p>
+        <div class="scroll-window sm"><table><thead><tr><th data-i18n="stock.mid">item_mid</th><th data-i18n="stock.count">数量</th><th data-i18n="stock.type">分类</th><th class="col-actions" data-i18n="stock.action">操作</th></tr></thead><tbody id="stock-body"></tbody></table></div>
+        <div class="pagination"><span id="stock-total" class="muted">—</span><div class="page-controls"><button class="text-button" id="stock-prev" type="button" data-i18n="common.prev">上一页</button><span id="stock-page">1 / 1</span><button class="text-button" id="stock-next" type="button" data-i18n="common.next">下一页</button></div></div>
+      </section>
+
+      <section id="rewards-mails" class="surface card">
+        <div class="card-head"><h2 data-i18n="mails.title">自定义邮件</h2><button class="button sm" id="clear-mails" data-i18n="mails.clear">清除全部自定义邮件</button></div>
+        <p class="muted" style="font-size:13px" data-i18n="mails.desc">通过本面板发送到游戏邮箱的自定义邮件，客户端打开邮箱即可领取。</p>
+        <div class="table-scroll"><table><thead><tr><th data-i18n="history.time">创建时间</th><th data-i18n="stock.mid">item_mid</th><th data-i18n="stock.count">数量</th><th data-i18n="reward.mailMessage">留言</th></tr></thead><tbody id="mails-body"></tbody></table></div>
+      </section>
+
+      <!-- ===== 视图二：看板娘 ===== -->
+      <section id="girl-view" class="surface card" hidden>
+        <div class="section-heading"><h2 data-i18n="girl.title">看板娘</h2><p class="muted" data-i18n="girl.desc">切换主界面看板娘，并管理她的泳装与饰品。</p></div>
+        <div class="stat-grid" style="margin-bottom:20px">
+          <div class="stat"><div class="k" data-i18n="girl.current">当前看板娘</div><div class="v" id="girl-current">—</div></div>
+          <div class="stat"><div class="k" data-i18n="girl.count">已配置装备</div><div class="v" id="girl-count">—</div></div>
+        </div>
+        <h3 data-i18n="girl.select">选择女孩</h3>
+        <div class="girl-grid" id="girl-grid"></div>
+        <div class="subtle-divider"></div>
+        <h3><span data-i18n="girl.equipTitle">装备管理 —</span> <span id="equip-girl-name">—</span></h3>
+        <p class="muted" style="font-size:13px" data-i18n="girl.equipDesc">填写 item_mid；留空表示清除该部位的装备。</p>
+        <div class="grid-2" style="margin-top:14px">
+          <div><label for="eqSwimsuit" data-i18n="girl.swimsuit">泳装 swimsuit_item_mid</label><input type="number" id="eqSwimsuit" placeholder="item_mid"></div>
+          <div><label for="eqArm" data-i18n="girl.arm">手饰 accessory_arm_item_mid</label><input type="number" id="eqArm" placeholder="item_mid"></div>
+          <div><label for="eqHead" data-i18n="girl.head">面饰 accessory_head_item_mid</label><input type="number" id="eqHead" placeholder="item_mid"></div>
+        </div>
+        <div class="btn-row"><button class="button primary" id="save-equip" data-i18n="girl.saveEquip">保存装备</button></div>
+      </section>
+
+      <!-- ===== 视图三：扭蛋设置 ===== -->
+      <div id="gacha-view" hidden>
+        <section class="surface card" style="margin-top:0">
+          <div class="section-heading"><h2 data-i18n="gacha.global">全局爆率与保底</h2><p class="muted" data-i18n="gacha.globalDesc">设置所有卡池的默认稀有度权重与保底参数。</p></div>
+          <div class="grid-2">
+            <div><label for="gcSSR">SSR 权重</label><input type="number" id="gcSSR" value="5"></div>
+            <div><label for="gcSR">SR 权重</label><input type="number" id="gcSR" value="15"></div>
+            <div><label for="gcR">R 权重</label><input type="number" id="gcR" value="80"></div>
+            <div><label for="gcHardPity" data-i18n="gacha.hardPity">硬保底 hard_pity</label><input type="number" id="gcHardPity" value="0"></div>
+            <div><label for="gcSoftStart" data-i18n="gacha.softStart">软保底起点</label><input type="number" id="gcSoftStart" value="0"></div>
+            <div><label for="gcSoftIncr" data-i18n="gacha.softIncr">软保底增量</label><input type="number" id="gcSoftIncr" value="6"></div>
+          </div>
+          <div class="hint-warn" data-i18n="gacha.sumHint">SSR + SR + R 总和必须等于 100；硬保底 0 表示禁用。</div>
+          <div class="grid-2" style="margin-top:10px">
+            <div><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="gcStepup" checked><span data-i18n="gacha.stepup">启用阶梯天井</span></label></div>
+            <div><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="gcSSRLock"><span data-i18n="gacha.ssrLock">SSR 自动锁定</span></label></div>
+          </div>
+          <div class="btn-row"><button class="button primary" id="save-gacha-config" data-i18n="gacha.saveConfig">保存全局配置</button></div>
+        </section>
+
+        <section class="surface card">
+          <div class="card-head"><h2 data-i18n="gacha.searchTitle">卡池搜索</h2></div>
+          <div class="toolbar"><input type="text" id="gacha-search-input" data-i18n-ph="gacha.searchPh" placeholder="输入 gacha_mid，如 5414"><button class="button" id="gacha-search-btn" data-i18n="common.search">搜索</button><button class="button sm" id="gacha-list-all" data-i18n="gacha.listAll">列出前 100 个</button></div>
+          <div class="scroll-window"><table><thead><tr><th>gacha_mid</th><th>max_step</th><th data-i18n="gacha.override">有覆盖</th><th data-i18n="gacha.action">操作</th></tr></thead><tbody id="gacha-search-body"></tbody></table></div>
+        </section>
+
+        <section class="surface card" id="gacha-pool-card" hidden>
+          <div class="card-head"><h2 id="gacha-pool-title"><span data-i18n="gacha.poolTitle">卡池详情</span> <span id="gacha-pool-mid" class="muted" style="font-size:13px"></span></h2><div class="btn-row" style="margin:0"><button class="button sm" id="save-gacha-pool" data-i18n="gacha.savePool">保存卡池配置</button><button class="button sm" id="reset-gacha-pity" data-i18n="gacha.resetPity">重置保底</button><button class="button sm" id="clear-gacha-pool" data-i18n="gacha.clearOverride">清除覆盖</button></div></div>
+          <div class="stat-grid" style="margin-bottom:18px">
+            <div class="stat"><div class="k" data-i18n="gacha.curStep">当前阶梯</div><div class="v" id="gpCurStep">—</div></div>
+            <div class="stat"><div class="k" data-i18n="gacha.totalDraws">累计抽数</div><div class="v" id="gpTotalDraws">—</div></div>
+            <div class="stat"><div class="k" data-i18n="gacha.sinceSSR">距上次 SSR</div><div class="v" id="gpSinceSSR">—</div></div>
+          </div>
+          <h3 data-i18n="gacha.rarityOverride">稀有度权重覆盖（留空 = 用全局）</h3>
+          <div class="grid-2" style="margin-top:10px">
+            <div><label for="gpSSR">SSR</label><input type="number" id="gpSSR" placeholder="留空=全局"></div>
+            <div><label for="gpSR">SR</label><input type="number" id="gpSR" placeholder="留空=全局"></div>
+            <div><label for="gpR">R</label><input type="number" id="gpR" placeholder="留空=全局"></div>
+            <div><label for="gpHardPity" data-i18n="gacha.hardPity">硬保底覆盖</label><input type="number" id="gpHardPity" placeholder="留空=全局"></div>
+          </div>
+          <div class="subtle-divider"></div>
+          <h3 data-i18n="gacha.weights">物品权重（留空 = 用默认权重）</h3>
+          <div id="gacha-weights"></div>
+        </section>
+
+        <section class="surface card">
+          <div class="card-head"><h2 data-i18n="gacha.groupTitle">游戏内卡池组</h2><span id="gacha-group-count" class="muted" style="font-size:12px">—</span></div>
+          <p class="muted" style="font-size:13px" data-i18n="gacha.groupHint">游戏按 banner 合并显示卡池：同一组里的 gacha_mid 是同一个卡池的不同抽法（单抽 / 十连 / 用券）。显示开关与爆率按组统一设置，才会对所有抽法生效。</p>
+          <div class="toolbar">
+            <button class="button sm" id="gacha-group-tab-all" data-i18n="gacha.tabAll">全部</button>
+            <button class="button sm" id="gacha-group-tab-limited" data-i18n="gacha.tabLimited">限期</button>
+            <button class="button sm" id="gacha-group-tab-normal" data-i18n="gacha.tabNormal">常规</button>
+            <button class="button sm" id="gacha-group-all" data-i18n="gacha.selectAll">全选</button>
+            <button class="button sm" id="gacha-group-none" data-i18n="gacha.selectNone">全不选</button>
+          </div>
+          <div class="scroll-window" id="gacha-group-window"><table>
+            <thead><tr><th data-i18n="gacha.visible">显示</th><th data-i18n="gacha.groupCol">卡池组</th><th data-i18n="gacha.tabCol">分类</th><th>gacha_mid（抽法）</th><th data-i18n="gacha.poolCol">奖池稀有度</th><th class="col-actions" data-i18n="gacha.action">操作</th></tr></thead>
+            <tbody id="gacha-group-body"></tbody>
+          </table></div>
+          <div class="btn-row"><button class="button primary" id="save-gacha-visible-groups" data-i18n="gacha.saveVisible">保存显示开关</button></div>
+        </section>
+
+        <section class="surface card" id="gacha-group-config-card" hidden>
+          <div class="card-head"><h2 data-i18n="gacha.groupConfigTitle">卡池组爆率设置</h2><span id="gacha-group-config-title" class="muted" style="font-size:13px"></span></div>
+          <p class="muted" style="font-size:13px" id="gacha-group-config-mids">—</p>
+          <div id="gacha-group-pools" class="scroll-window sm" style="margin-bottom:16px"></div>
+          <div class="grid-2">
+            <div><label for="ggSSR">SSR 权重</label><input type="number" id="ggSSR" min="0" step="1" placeholder="留空=全局"></div>
+            <div><label for="ggSR">SR 权重</label><input type="number" id="ggSR" min="0" step="1" placeholder="留空=全局"></div>
+            <div><label for="ggR">R 权重</label><input type="number" id="ggR" min="0" step="1" placeholder="留空=全局"></div>
+            <div><label for="ggHardPity" data-i18n="gacha.hardPity">硬保底覆盖</label><input type="number" id="ggHardPity" min="0" step="1" placeholder="留空=全局"></div>
+          </div>
+          <div style="margin-top:10px"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="ggFill" checked><span data-i18n="gacha.groupFill">补齐缺失稀有度（让爆率对所有抽法生效）</span></label></div>
+          <div class="hint-warn" data-i18n="gacha.groupSumHint">留空表示沿用全局设置；填写时 SSR + SR + R 必须等于 100。保存后组内所有抽法共用这一份配置和保底计数。</div>
+          <div class="btn-row">
+            <button class="button primary" id="save-gacha-group" data-i18n="gacha.saveGroup">保存组配置</button>
+            <button class="button" id="clear-gacha-group" data-i18n="gacha.clearGroup">清除组配置</button>
+            <button class="button" id="reset-gacha-group-pity" data-i18n="gacha.resetGroupPity">重置组保底</button>
+          </div>
+        </section>
+
+        <section class="surface card">
+          <div class="card-head"><h2 data-i18n="gacha.visibleTitle">按 mid 精细管理</h2><span id="gacha-visible-count" class="muted" style="font-size:12px">—</span></div>
+          <p class="muted" style="font-size:13px" data-i18n="gacha.visibleHint">按单个 gacha_mid 精细调整显示状态。上方按组操作会同步到这里；列表可滚动翻阅，勾选跨页保留；全选 / 全不选只作用于当前筛选结果。保存后游戏重新拉取 gacha/list 生效。</p>
+          <div class="toolbar"><input type="text" id="gacha-visible-filter" data-i18n-ph="gacha.visibleFilterPh" placeholder="过滤 gacha_mid"><button class="button sm" id="gacha-visible-refresh" data-i18n="gacha.refreshList">刷新列表</button><button class="button sm" id="gacha-visible-all" data-i18n="gacha.selectAll">全选</button><button class="button sm" id="gacha-visible-none" data-i18n="gacha.selectNone">全不选</button></div>
+          <div class="scroll-window" id="gacha-visible-window"><table><thead><tr><th>gacha_mid</th><th>type</th><th data-i18n="gacha.visible">显示</th></tr></thead><tbody id="gacha-visible-body"></tbody></table></div>
+          <div class="list-meta">
+            <span id="gacha-visible-summary">—</span>
+            <div class="page-controls"><button class="text-button" id="gacha-visible-prev" data-i18n="common.prev">上一页</button><span id="gacha-visible-page">1 / 1</span><button class="text-button" id="gacha-visible-next" data-i18n="common.next">下一页</button></div>
+          </div>
+          <div class="btn-row"><button class="button primary" id="save-gacha-visible" data-i18n="gacha.saveVisible">保存可见卡池</button><button class="button" id="reset-gacha-visible" data-i18n="gacha.resetVisible">全部显示（重置）</button></div>
+        </section>
+      </div>
+
+      <!-- ===== 视图四：操作记录 ===== -->
+      <div id="history-view" hidden>
+        <section class="surface card" style="margin-top:0">
+          <div class="card-head"><h2 data-i18n="history.title">GM 操作记录</h2><button class="button sm" id="history-clear" data-i18n="history.clear">清除记录</button></div>
+          <p class="muted" style="font-size:13px" data-i18n="history.desc">本浏览器记录的最近 200 次 GM 操作（存于 localStorage）。</p>
+          <div class="table-scroll"><table><thead><tr><th data-i18n="history.time">操作时间</th><th data-i18n="history.action">操作</th><th data-i18n="history.target">目标</th><th data-i18n="history.result">结果</th></tr></thead><tbody id="history-body"></tbody></table></div>
+          <div class="pagination"><span id="history-total" class="muted">—</span></div>
+        </section>
+        <section class="surface card">
+          <div class="card-head"><h2 data-i18n="log.title">服务器日志</h2><button class="button sm" id="log-refresh" data-i18n="common.refresh">刷新</button></div>
+          <p class="muted" style="font-size:13px" data-i18n="log.desc">full_server.log 最后 100 行。</p>
+          <div class="log-box" id="log-box">—</div>
+        </section>
+      </div>
+
+      <!-- ===== 视图五：存档管理 ===== -->
+      <div id="save-view" hidden>
+        <section class="surface card" style="margin-top:0">
+          <div class="section-heading"><h2 data-i18n="save.overview">存档状态总览</h2><p class="muted" data-i18n="save.overviewDesc">下列数值来自服务器当前的 STATE，刷新后即时更新。</p></div>
+          <div class="stat-grid" id="save-stats"></div>
+        </section>
+        <section class="surface card" id="owner-profile-card">
+          <div class="card-head"><h2 data-i18n="owner.profileTitle">岛主资料</h2><span class="muted" style="font-size:12px" data-i18n="owner.profileDesc">直接改写存档里的值，重进游戏后生效；游戏内改名门槛较高，这里不受限制。</span></div>
+          <div class="grid-2">
+            <div><label class="field-label" for="own-name" data-i18n="owner.name">岛主名 name</label><input id="own-name" type="text" maxlength="16" autocomplete="off"></div>
+            <div><label class="field-label" for="own-island" data-i18n="owner.islandName">岛名 island_name</label><input id="own-island" type="text" maxlength="16" autocomplete="off"></div>
+          </div>
+          <div style="margin-top:14px"><label class="field-label" for="own-message" data-i18n="owner.message">岛主留言 message</label><input id="own-message" type="text" maxlength="50" autocomplete="off"></div>
+          <p class="muted" style="font-size:12px; margin:8px 0 0" data-i18n="owner.hint">留空表示沿用抓包默认值。写入后 /v1/owner 与 updatelogin 会统一套用，客户端进岛即显示新值。</p>
+          <div class="btn-row"><button class="button primary" id="save-owner" data-i18n="owner.save">保存岛主资料</button><button class="button" id="reset-owner" data-i18n="owner.reset">恢复默认</button></div>
+        </section>
+        <section class="surface card" id="venus-card">
+          <div class="card-head"><h2 data-i18n="venus.title">维纳斯图板</h2><span class="muted" style="font-size:12px" data-i18n="venus.desc">按女孩分别记录看板解锁进度。「解锁全部」会同时把每块看板的奖励写进背包，只发一次，重复点击不会重复发放。</span></div>
+          <div class="stat-grid" id="venus-stats"></div>
+          <div class="btn-row">
+            <button class="button primary" id="venus-unlock" data-i18n="venus.unlock">解锁全部（含奖励）</button>
+            <button class="button" id="venus-reset" data-i18n="venus.reset">重置解锁进度</button>
+          </div>
+          <p class="muted" style="font-size:12px; margin:8px 0 0" data-i18n="venus.hint">重置只清空解锁记录，不会回收已经进背包的道具。剧情（35008）与扭蛋券（25001）类奖励的数值是剧情 / 卡池 ID，不写成道具数量。</p>
+        </section>
+        <section id="rewards-extra" class="surface card">
+          <div class="card-head"><h2 data-i18n="wallet.title">钱包快捷设置</h2><span class="muted" style="font-size:12px" data-i18n="wallet.desc">直接设定六种货币数值</span></div>
+          <div class="grid-2">
+            <div><label for="wZack" data-i18n="wallet.zack">金币 zack_money</label><input type="number" id="wZack"></div>
+            <div><label for="wFreeVstone" data-i18n="wallet.freeV">免费V石 free_vstone</label><input type="number" id="wFreeVstone"></div>
+            <div><label for="wGuest" data-i18n="wallet.guest">客人点数 guest_point</label><input type="number" id="wGuest"></div>
+            <div><label for="wVip" data-i18n="wallet.vipPoint">VIP点数 vip_point</label><input type="number" id="wVip"></div>
+            <div><label for="wPaid" data-i18n="wallet.paidV">付费V石 paid_vstone</label><input type="number" id="wPaid"></div>
+            <div><label for="wVipCoin" data-i18n="wallet.vipCoin">VIP币 vip_coin</label><input type="number" id="wVipCoin"></div>
+          </div>
+          <div class="btn-row"><button class="button" id="save-wallet" data-i18n="wallet.save">保存钱包</button></div>
+        </section>
+        <section class="surface card">
+          <div class="section-heading"><h2 data-i18n="save.resetTitle">状态重置</h2><p class="muted" data-i18n="save.resetDesc">清空邮箱（自定义邮件 + 内置邮件 + 领取记录）、重置签到与公告。不会删除角色、装备或库存物品。</p></div>
+          <div class="btn-row">
+            <button class="button" data-reset="giftbox" data-i18n="save.resetGiftbox">清空邮箱</button>
+            <button class="button" data-reset="login_bonus" data-i18n="save.resetBonus">重置签到</button>
+            <button class="button" data-reset="information" data-i18n="save.resetInfo">重置公告</button>
+            <button class="button" data-reset="all" data-i18n="save.resetAll">重置以上全部</button>
+          </div>
+          <div class="subtle-divider"></div>
+          <div class="btn-row">
+            <button class="button" id="save-clear-mails" data-i18n="save.clearMails">清除自定义邮件</button>
+            <button class="button" id="save-restore-mails" data-i18n="save.restoreMails">恢复内置邮件</button>
+            <button class="button" id="save-reset-pity" data-i18n="save.resetPity">重置全部保底</button>
+            <button class="button" id="save-show-pools" data-i18n="save.showAllPools">恢复显示所有卡池</button>
+          </div>
+        </section>
+        <section class="danger-zone">
+          <h2 data-i18n="save.dangerTitle">危险操作</h2>
+          <p class="muted" style="font-size:13px" data-i18n="save.dangerDesc">把六种货币归零、清除自定义邮件并重置所有已领取 / 已读标记。此操作不可撤销，请先备份 server_state.json，并完全退出游戏。角色、装备与库存物品不会被删除。</p>
+          <button class="button danger" id="danger-reset" data-i18n="save.dangerButton">清空钱包与领取记录</button>
+        </section>
+      </div>
+    </main>
   </div>
 
-  <!-- 卡片 D: 物品权重表 (默认隐藏) -->
-  <div class="card" id="gachaWeightCard" style="display:none">
-    <h2>物品权重 — SSR / SR / R</h2>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:12px">覆盖权重留空=用默认权重。修改后点击上方保存卡池配置按钮生效</p>
-    <p style="color:#a0a0a0;font-size:13px;margin-bottom:8px">SSR</p>
-    <table id="gachaSSRTable"><thead><tr><th>item_mid</th><th>默认权重</th><th>覆盖权重</th></tr></thead><tbody></tbody></table>
-    <p style="color:#a0a0a0;font-size:13px;margin:16px 0 8px">SR</p>
-    <table id="gachaSRTable"><thead><tr><th>item_mid</th><th>默认权重</th><th>覆盖权重</th></tr></thead><tbody></tbody></table>
-    <p style="color:#a0a0a0;font-size:13px;margin:16px 0 8px">R</p>
-    <table id="gachaRTable"><thead><tr><th>item_mid</th><th>默认权重</th><th>覆盖权重</th></tr></thead><tbody></tbody></table>
-  </div>
+  <footer class="page-footer">DOAXVV 本地模拟服务器 · 玩家服务 GM 面板</footer>
 
-  <!-- 卡片 E: 卡池开关 (GM控制游戏内显示哪些卡池) -->
-  <div class="card">
-    <h2>卡池开关（控制游戏内显示的卡池）</h2>
-    <p style="color:#e8c55c;font-size:13px;margin-bottom:12px">勾选=游戏内显示该卡池；不勾选=隐藏。"全部显示"=重置(显示所有)。保存后重启游戏生效（gacha/list 刷新）</p>
-    <div class="field">
-      <label>搜索过滤</label>
-      <input type="text" id="gachaVisibleFilter" placeholder="过滤 gacha_mid" oninput="renderGachaVisible()" style="width:200px">
-      <button class="btn" onclick="loadGachaVisible()">刷新列表</button>
-    </div>
-    <table id="gachaVisibleTable"><thead><tr><th>gacha_mid</th><th>type</th><th>显示</th></tr></thead><tbody></tbody></table>
-    <div style="margin-top:12px">
-      <button class="btn" onclick="saveGachaVisible()">保存可见卡池</button>
-      <button class="btn btn-secondary" onclick="resetGachaVisible()">全部显示(重置)</button>
-      <button class="btn btn-secondary" onclick="toggleAllGachaVisible(true)">全选</button>
-      <button class="btn btn-secondary" onclick="toggleAllGachaVisible(false)">全不选</button>
-    </div>
-    <div class="info" id="gachaVisibleMsg"></div>
-  </div>
-</div>
+  <dialog id="confirmation" aria-labelledby="confirmation-title"><form method="dialog"><h2 id="confirmation-title" data-i18n="dialog.confirmTitle">确认发放</h2><p id="confirm-description"></p><p class="muted" data-i18n="dialog.confirmHint">操作会立即写入本地服务器存档。</p><div class="dialog-actions"><button class="button" value="cancel" data-i18n="dialog.cancel">返回修改</button><button class="button primary" value="confirm" data-i18n="dialog.confirmSubmit">确认发放</button></div></form></dialog>
 
-</div>
+  <dialog id="rename-dialog" aria-labelledby="rename-title"><form method="dialog">
+    <h2 id="rename-title" data-i18n="name.title">修改名称</h2>
+    <p class="muted" id="rename-target">—</p>
+    <label class="field-label" for="rename-input" data-i18n="name.field">GM 显示名称</label>
+    <input id="rename-input" type="text" maxlength="60" autocomplete="off" placeholder="留空并点「恢复原名」可撤销修正">
+    <p class="muted" style="font-size:12px; line-height:1.7" data-i18n="name.hint">只写入 GM 专属映射表 GM/gm_names.csv，不改动任何原始主数据；删掉该文件即完全还原。</p>
+    <div class="dialog-actions"><button class="button" value="cancel" data-i18n="common.cancel">取消</button><button class="button" value="clear" data-i18n="name.clear">恢复原名</button><button class="button primary" value="save" data-i18n="common.save">保存</button></div>
+  </form></dialog>
+
+  <dialog id="qty-dialog" aria-labelledby="qty-title"><form method="dialog">
+    <h2 id="qty-title" data-i18n="qty.title">修改库存数量</h2>
+    <p class="muted" id="qty-target">—</p>
+    <label class="field-label" for="qty-input" data-i18n="qty.field">新数量</label>
+    <input id="qty-input" type="number" min="0" max="100000000" step="1" required autocomplete="off">
+    <p class="muted" style="font-size:12px; line-height:1.7" data-i18n="qty.hint">直接覆盖存档里的数量（不是累加）。填 0 表示该物品移出库存。</p>
+    <div class="dialog-actions"><button class="button" value="cancel" data-i18n="common.cancel">取消</button><button class="button primary" value="save" data-i18n="common.save">保存</button></div>
+  </form></dialog>
+
+  <dialog id="reset-confirmation" aria-labelledby="reset-confirmation-title"><form method="dialog">
+    <h2 id="reset-confirmation-title" data-i18n="dialog.resetTitle">确认重置状态</h2>
+    <p id="reset-confirm-desc"></p>
+    <label class="reset-ack"><input id="reset-acknowledged" type="checkbox" required><span data-i18n="dialog.resetAck">我已了解该操作不可撤销，并已退出游戏。</span></label>
+    <div class="dialog-actions"><button class="button" value="cancel" formnovalidate data-i18n="dialog.cancel">取消</button><button class="button danger" value="confirm" data-i18n="dialog.resetConfirm">确认重置</button></div>
+  </form></dialog>
 
 <script>
+/* ============================================================
+   DOAXVV 玩家服务 GM 面板
+   数据源: /gm/api/*  (local_server_v2.py)
+   ============================================================ */
+'use strict';
+
 const API = location.origin + '/gm/api/';
-const GACHA_TYPE_NAMES = {1:'基础', 2:'常驻', 3:'限定', 4:'VIP'};
-const GIRL_NAMES = {
-  2:"女孩2 (lv17)",3:"穗香 (lv29,默认)",4:"穗香? (lv42)",5:"绫音 (lv19)",
-  6:"女天狗 (lv42)",7:"心 (lv36)",8:"女孩8 (lv1)",9:"红叶 (lv33)",
-  10:"女孩10 (lv15)",11:"海咲 (lv50)",12:"露娜 (lv20)",13:"环 (lv48)",
-  14:"女孩14 (lv1)",15:"莫妮卡 (lv44)",16:"女孩16 (lv1)",18:"菲欧娜 (lv44)",
-  21:"筑紫 (lv45)",22:"女孩22 (lv1)",23:"女孩23 (lv1)",26:"女孩26 (lv1)"
+const $ = id => document.getElementById(id);
+const OWNER_ID = 114514;
+
+/* ---------- 多语言：zh-CN 取自 DOM 初始文本，其余为字典/转换 ---------- */
+const BASE = {};
+document.querySelectorAll('[data-i18n]').forEach(el => {
+  if (el.dataset.i18n && BASE[el.dataset.i18n] === undefined) BASE[el.dataset.i18n] = el.textContent.trim();
+});
+const BASE_PH = {};
+document.querySelectorAll('[data-i18n-ph]').forEach(el => { BASE_PH[el.dataset.i18nPh] = el.placeholder; });
+/* 仅由 JS 动态使用的文案（页面里没有对应的静态节点） */
+Object.assign(BASE, {
+  'page.connecting': '连接中…', 'page.connected': '已连接', 'page.failed': '连接失败',
+  'save.stock': '库存物品', 'save.gacha': '扭蛋配置',
+  'venus.panels': '已解锁看板', 'venus.girls': '已解锁女孩', 'venus.rewardState': '奖励已发放',
+  'venus.granted': '是', 'venus.notGranted': '否', 'venus.maxedAt': '最近解锁时间',
+  'stock.editCount': '修改数量',
+  'account.switchSoon': '账号切换功能将在后续版本实现，当前仅保留入口。',
+  'common.view': '查看'
+});
+
+const EN = {
+  'page.title':'DOAXVV Player Service','page.brand':'Player Service','page.connecting':'Connecting…','page.connected':'Connected','page.failed':'Disconnected',
+  'language.label':'Language','nav.title':'Tools','nav.rewards':'Grant Items','nav.girl':'Main Girl','nav.gacha':'Gacha','nav.history':'Activity Log','nav.save':'Save Data',
+  'account.title':'Island Owner Workspace','account.local':'Local Server','account.switch':'Switch account','account.switchSoon':'Account switching is not implemented yet.','common.refresh':'Refresh','common.search':'Search','common.prev':'Previous','common.next':'Next','common.save':'Save','common.cancel':'Cancel','common.view':'View',
+  'wallet.save':'Save wallet','girl.saveEquip':'Save equipment','gacha.saveConfig':'Save global config','gacha.savePool':'Save pool','gacha.saveVisible':'Save visibility',
+  'error.title':'Server not connected','error.body':'Cannot reach the local game server. Make sure it is running on port 443 (use 启动GM.bat in the GM folder), then retry.','error.retry':'Retry',
+  'gmoff.title':'GM closed','gmoff.body':'Click 启动GM in the tray menu to reconnect. This page recovers automatically, so there is no need to close the window.',
+  'name.edit':'Rename','name.title':'Rename','name.field':'Display name in GM','name.clear':'Reset name','name.hint':'Saved only to the GM-only map GM/gm_names.csv — original master data is never touched. Delete that file to revert everything.',
+  'reward.title':'Grant Items','reward.desc':'Pick an item and quantity, then add it to inventory or send it to the in-game mailbox.','reward.target':'Recipient','reward.targetNote':'Items are granted to the current local save and written to server state immediately.','reward.type':'Category','reward.find':'Find item','reward.searchPh':'item_mid or category','reward.select':'Select item','reward.customHint':'Cannot find it? Enter an item_mid below.','reward.count':'Quantity','reward.method':'Delivery','reward.methodMail':'Send to in-game mailbox','reward.methodStock':'Add to inventory','reward.methodSet':'Set inventory count','reward.methodRemove':'Remove from inventory','reward.mailMessage':'Message','reward.mailType':'Mail type','reward.customMid':'Custom item_mid','reward.mailHint':'Check the in-game mailbox or bag afterwards; some changes need reopening the screen.','reward.submit':'Grant Items',
+  'help.title':'Delivered in game','help.desc':'Currencies, items, swimsuits and materials can be written to inventory or sent by mail.','help.step1':'Confirm item ID and quantity.','help.step2':'Choose delivery and confirm.','help.step3':'Return to the game and check mailbox or bag.','help.missing':'Nothing arrived?','help.retry':'Check the Activity Log first, then refresh the in-game mailbox. Retry with the same content after a network failure.',
+  'wallet.title':'Wallet','wallet.desc':'Set the six currency values directly','wallet.zack':'Gold zack_money','wallet.freeV':'Free V-stones','wallet.guest':'Guest points','wallet.vipPoint':'VIP points','wallet.paidV':'Paid V-stones','wallet.vipCoin':'VIP coins',
+  'stock.title':'Inventory','stock.desc':'Items with count > 0, sorted by count, 20 per page with paging.','stock.mid':'item_mid','stock.count':'Count','stock.type':'Category','stock.action':'Action','stock.editCount':'Set count','stock.filterPh':'Filter item_mid',
+  'mails.title':'Custom mails','mails.desc':'Custom mails sent from this panel are claimable in the in-game mailbox.','mails.clear':'Clear all custom mails',
+  'girl.title':'Main Girl','girl.desc':'Switch the home-screen girl and manage her swimsuit and accessories.','girl.current':'Current girl','girl.count':'Girls with equipment','girl.select':'Choose a girl','girl.equipTitle':'Equipment —','girl.equipDesc':'Enter item_mid; leave blank to clear that slot.','girl.swimsuit':'Swimsuit','girl.arm':'Arm accessory','girl.head':'Head accessory',
+  'gacha.global':'Global rates & pity','gacha.globalDesc':'Default rarity weights and pity for all pools.','gacha.hardPity':'Hard pity','gacha.softStart':'Soft pity start','gacha.softIncr':'Soft pity increment','gacha.sumHint':'SSR + SR + R must total 100; hard pity 0 disables it.','gacha.stepup':'Enable step-up','gacha.ssrLock':'Auto-lock SSR','gacha.searchTitle':'Find a pool','gacha.searchPh':'gacha_mid, e.g. 5414','gacha.listAll':'List first 100','gacha.override':'Override','gacha.action':'Action','gacha.poolTitle':'Pool details','gacha.resetPity':'Reset pity','gacha.clearOverride':'Clear override','gacha.curStep':'Current step','gacha.totalDraws':'Total draws','gacha.sinceSSR':'Since last SSR','gacha.rarityOverride':'Rarity weight override (blank = global)','gacha.weights':'Item weights (blank = default)','gacha.refreshList':'Refresh list','gacha.visibleTitle':'Pool visibility','gacha.visibleHint':'Checked = visible in game. The list scrolls and is paged; selections persist across pages. Select all / none applies only to the current filter. Changes take effect when the game re-fetches gacha/list.','gacha.visibleFilterPh':'Filter gacha_mid','gacha.selectAll':'Select all','gacha.selectNone':'Select none','gacha.visible':'Visible','gacha.resetVisible':'Show all (reset)',
+  'gacha.groupTitle':'In-game pool groups','gacha.groupHint':'The game merges pools by banner: gacha_mids in one group are different draw methods (single / ten / ticket) of the same pool. Set visibility and rates per group so every method is covered.','gacha.tabAll':'All','gacha.tabLimited':'Limited','gacha.tabNormal':'Standard','gacha.groupCol':'Group','gacha.tabCol':'Category','gacha.poolCol':'Pool rarities','gacha.groupConfigTitle':'Group rate settings','gacha.groupFill':'Fill missing rarities so rates work on every draw method','gacha.groupSumHint':'Blank = use global settings. If filled, SSR + SR + R must total 100. All draw methods in the group share this config and pity counter.','gacha.saveGroup':'Save group config','gacha.clearGroup':'Clear group config','gacha.resetGroupPity':'Reset group pity',
+  'history.title':'GM Activity Log','history.desc':'Last 200 GM actions in this browser (localStorage).','history.time':'Time','history.action':'Action','history.target':'Target','history.result':'Result','history.clear':'Clear log','log.title':'Server log','log.desc':'Last 100 lines of full_server.log.',
+  'save.overview':'Save state overview','save.overviewDesc':'Values come from the live server STATE and update on refresh.','save.stock':'Inventory items','save.gacha':'Gacha configs','save.resetTitle':'Reset state','save.resetDesc':'Empty the mailbox (custom + built-in mails + claim history), reset login bonus and notices. Characters, equipment and inventory are kept.','save.resetGiftbox':'Clear mailbox','save.restoreMails':'Restore built-in mails','owner.profileTitle':'Island owner profile','owner.profileDesc':'Writes straight into the save; takes effect after re-entering the island.','owner.name':'Owner name','owner.islandName':'Island name','owner.message':'Owner message','owner.hint':'Empty keeps the captured default. Applied to /v1/owner and updatelogin.','owner.save':'Save profile','owner.reset':'Restore default','save.resetBonus':'Reset login bonus','save.resetInfo':'Reset notices','save.resetAll':'Reset all above','save.clearMails':'Clear custom mails','save.resetPity':'Reset all pity','save.showAllPools':'Show all pools again','save.dangerTitle':'Danger zone','save.dangerDesc':'Zero all six currencies, remove custom mails and reset every claimed / read flag. This cannot be undone. Back up server_state.json and quit the game first. Characters, equipment and inventory items are kept.','save.dangerButton':'Clear wallet & claim flags',
+  'venus.title':'Venus Board','venus.desc':'Per-girl board unlock progress. "Unlock all" also writes every panel reward into the bag once; repeated clicks never duplicate rewards.','venus.panels':'Panels unlocked','venus.girls':'Girls maxed','venus.rewardState':'Rewards granted','venus.granted':'Yes','venus.notGranted':'No','venus.maxedAt':'Last unlock','venus.unlock':'Unlock all (with rewards)','venus.reset':'Reset unlock progress','venus.hint':'Reset only clears unlock records; items already in the bag are kept. Values for story (35008) and gacha ticket (25001) rewards are episode / pool IDs, so they are never written as item counts.',
+  'qty.title':'Change inventory count','qty.field':'New count','qty.hint':'Overwrites the saved count (not additive). 0 removes the item from inventory.',
+  'dialog.confirmTitle':'Confirm grant','dialog.confirmHint':'This writes to the local server save immediately.','dialog.cancel':'Go back','dialog.confirmSubmit':'Confirm','dialog.resetTitle':'Confirm reset','dialog.resetAck':'I understand this cannot be undone and I have quit the game.','dialog.resetConfirm':'Confirm reset'
 };
-let S = {};
-
-async function api(path, opts={}) {
-  const r = await fetch(API + path, {headers:{'Content-Type':'application/json'}, ...opts});
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+const JA = {
+  'page.title':'DOAXVV プレイヤーサービス','page.brand':'プレイヤーサービス','page.connecting':'接続中…','page.connected':'接続済み','page.failed':'切断',
+  'language.label':'言語','nav.title':'管理ツール','nav.rewards':'アイテム付与','nav.girl':'看板娘','nav.gacha':'ガチャ設定','nav.history':'操作履歴','nav.save':'セーブ管理',
+  'account.title':'オーナーワークスペース','account.local':'ローカルサーバー','account.switch':'アカウント切替','account.switchSoon':'アカウント切替はまだ実装されていません。','common.refresh':'更新','common.search':'検索','common.prev':'前へ','common.next':'次へ','common.save':'保存','common.cancel':'キャンセル','common.view':'表示',
+  'wallet.save':'ウォレットを保存','girl.saveEquip':'装備を保存','gacha.saveConfig':'全体設定を保存','gacha.savePool':'ガチャ設定を保存','gacha.saveVisible':'表示設定を保存',
+  'error.title':'サーバーに接続できません','error.body':'ローカルゲームサーバーに接続できません。ポート 443 で起動しているか確認し（GM フォルダーの「启动GM.bat」）、再試行してください。','error.retry':'再試行',
+  'gmoff.title':'GM を終了しました','gmoff.body':'トレイメニューの「启动GM」で再接続できます。このページは自動で復帰するため、ウィンドウを閉じる必要はありません。',
+  'name.edit':'名前を修正','name.title':'名前を修正','name.field':'GM 表示名','name.clear':'元の名前に戻す','name.hint':'GM 専用の対応表 GM/gm_names.csv にのみ書き込みます。元のマスターデータは変更しません。ファイルを削除すれば完全に元へ戻ります。',
+  'reward.title':'アイテム付与','reward.desc':'アイテムと数量を選び、インベントリに追加するかゲーム内メールで送付します。','reward.target':'送信先','reward.targetNote':'現在のローカルセーブに付与され、ただちにサーバー状態へ書き込まれます。','reward.type':'カテゴリ','reward.find':'アイテム検索','reward.searchPh':'item_mid またはカテゴリ','reward.select':'アイテム選択','reward.customHint':'見つからない場合は下に item_mid を直接入力してください。','reward.count':'数量','reward.method':'付与方法','reward.methodMail':'ゲーム内メールで送付','reward.methodStock':'インベントリに追加','reward.methodSet':'個数を設定','reward.methodRemove':'インベントリから削除','reward.mailMessage':'メッセージ','reward.mailType':'メール種別','reward.customMid':'任意の item_mid','reward.mailHint':'付与後はゲーム内メールまたはバッグを確認してください。','reward.submit':'付与する',
+  'help.title':'ゲーム内に届きます','help.desc':'通貨・アイテム・水着・素材はインベントリ直接付与またはメール送付が可能です。','help.step1':'item_mid と数量を確認。','help.step2':'付与方法を選んで確認。','help.step3':'ゲームに戻りメールまたはバッグを確認。','help.missing':'届かない場合','help.retry':'まず「操作履歴」で成功を確認し、ゲーム内メールを更新してください。',
+  'wallet.title':'ウォレット','wallet.desc':'6 種の通貨を直接設定','wallet.zack':'ゼニー','wallet.freeV':'無料Vストーン','wallet.guest':'ゲストポイント','wallet.vipPoint':'VIPポイント','wallet.paidV':'有料Vストーン','wallet.vipCoin':'VIPコイン',
+  'stock.title':'所持アイテム','stock.desc':'個数 1 以上のアイテムを個数順に、1 ページ 20 件で表示。','stock.mid':'item_mid','stock.count':'個数','stock.type':'カテゴリ','stock.action':'操作','stock.editCount':'個数を変更','stock.filterPh':'item_mid で絞り込み',
+  'mails.title':'カスタムメール','mails.desc':'このパネルから送ったメールはゲーム内で受け取れます。','mails.clear':'カスタムメールを全削除',
+  'girl.title':'看板娘','girl.desc':'ホーム画面の女の子を切り替え、水着とアクセサリを管理します。','girl.current':'現在の看板娘','girl.count':'装備設定済み','girl.select':'女の子を選択','girl.equipTitle':'装備管理 —','girl.equipDesc':'item_mid を入力。空欄でその部位を解除します。','girl.swimsuit':'水着','girl.arm':'腕アクセサリ','girl.head':'頭アクセサリ',
+  'gacha.global':'全体排出率と天井','gacha.globalDesc':'全ガチャのデフォルト稀有度重みと天井設定。','gacha.hardPity':'ハード天井','gacha.softStart':'ソフト天井開始','gacha.softIncr':'ソフト天井増分','gacha.sumHint':'SSR + SR + R は合計 100 にしてください。ハード天井 0 で無効。','gacha.stepup':'ステップアップ有効','gacha.ssrLock':'SSR 自動ロック','gacha.searchTitle':'ガチャ検索','gacha.searchPh':'gacha_mid（例 5414）','gacha.listAll':'先頭 100 件','gacha.override':'上書き','gacha.action':'操作','gacha.poolTitle':'ガチャ詳細','gacha.resetPity':'天井リセット','gacha.clearOverride':'上書き解除','gacha.curStep':'現在ステップ','gacha.totalDraws':'累計抽数','gacha.sinceSSR':'SSR からの抽数','gacha.rarityOverride':'稀有度重み上書き（空欄=全体設定）','gacha.weights':'アイテム重み（空欄=デフォルト）','gacha.refreshList':'一覧を更新','gacha.visibleTitle':'ガチャ表示切替','gacha.visibleHint':'チェックでゲーム内に表示。一覧はスクロール＋ページ送り、選択はページを跨いで保持されます。全選択 / 全解除は現在の絞り込みにのみ適用。ゲームが gacha/list を再取得すると反映されます。','gacha.visibleFilterPh':'gacha_mid で絞り込み','gacha.selectAll':'全選択','gacha.selectNone':'全解除','gacha.visible':'表示','gacha.resetVisible':'全表示（リセット）',
+  'gacha.groupTitle':'ゲーム内ガチャグループ','gacha.groupHint':'ゲームはバナー単位でガチャをまとめます。同じグループの gacha_mid は単抽 / 十連 / 券など同じガチャの抽き方です。表示と排出率はグループ単位で設定してください。','gacha.tabAll':'すべて','gacha.tabLimited':'期間限定','gacha.tabNormal':'通常','gacha.groupCol':'グループ','gacha.tabCol':'分類','gacha.poolCol':'景品稀有度','gacha.groupConfigTitle':'グループ排出率設定','gacha.groupFill':'不足する稀有度を補い、全抽き方に排出率を適用','gacha.groupSumHint':'空欄=全体設定。入力時は SSR + SR + R の合計を 100 にしてください。グループ内は設定と天井を共有します。','gacha.saveGroup':'グループ設定を保存','gacha.clearGroup':'グループ設定を解除','gacha.resetGroupPity':'グループ天井をリセット',
+  'history.title':'GM 操作履歴','history.desc':'このブラウザの直近 200 件の操作（localStorage）。','history.time':'時刻','history.action':'操作','history.target':'対象','history.result':'結果','history.clear':'履歴を削除','log.title':'サーバーログ','log.desc':'full_server.log の末尾 100 行。',
+  'save.overview':'セーブ状態','save.overviewDesc':'サーバーの STATE から取得し、更新で即時反映されます。','save.stock':'所持アイテム','save.gacha':'ガチャ設定','save.resetTitle':'状態リセット','save.resetDesc':'メール（カスタム・内蔵・受取履歴）を空にし、ログインボーナスとお知らせをリセットします。キャラ・装備・所持品は保持されます。','save.resetGiftbox':'メールを空にする','save.restoreMails':'内蔵メールを復元','owner.profileTitle':'オーナー情報','owner.profileDesc':'セーブに直接書き込み、島に入り直すと反映されます。','owner.name':'オーナー名','owner.islandName':'島名','owner.message':'オーナーコメント','owner.hint':'空欄ならキャプチャ既定値を使用。/v1/owner と updatelogin に適用。','owner.save':'保存','owner.reset':'既定に戻す','save.resetBonus':'ログインボーナス','save.resetInfo':'お知らせ','save.resetAll':'上記すべて','save.clearMails':'カスタムメール削除','save.resetPity':'全天井リセット','save.showAllPools':'全ガチャを再表示','save.dangerTitle':'危険な操作','save.dangerDesc':'6 種の通貨を 0 にし、カスタムメールと受取済み・既読フラグをすべてリセットします。取り消せません。server_state.json をバックアップし、ゲームを終了してください。キャラ・装備・所持アイテムは保持されます。','save.dangerButton':'ウォレットと受取記録を消去',
+  'venus.title':'ヴィーナスボード','venus.desc':'女の子ごとのボード解放状況です。「すべて解放」は各看板の報酬を一度だけバッグへ書き込みます（連打しても重複しません）。','venus.panels':'解放済み看板','venus.girls':'完了した女の子','venus.rewardState':'報酬付与済み','venus.granted':'はい','venus.notGranted':'いいえ','venus.maxedAt':'最終解放','venus.unlock':'すべて解放（報酬込み）','venus.reset':'解放状況をリセット','venus.hint':'リセットは解放記録のみ消去し、既にバッグにあるアイテムは回収しません。剧情(35008)・ガチャ券(25001)の数値は話数 / ガチャ ID のため、個数としては書き込みません。',
+  'qty.title':'在庫数を変更','qty.field':'新しい個数','qty.hint':'セーブ内の個数を上書きします（加算ではありません）。0 で在庫から削除されます。',
+  'dialog.confirmTitle':'付与の確認','dialog.confirmHint':'ローカルサーバーのセーブに即時書き込まれます。','dialog.cancel':'戻る','dialog.confirmSubmit':'確定','dialog.resetTitle':'リセットの確認','dialog.resetAck':'取り消せないことを理解し、ゲームを終了しました。','dialog.resetConfirm':'リセット実行'
+};
+const S2T = {'领':'領','奖':'獎','励':'勵','记':'記','录':'錄','删':'刪','档':'檔','销':'銷','资':'資','币':'幣','钻':'鑽','石':'石','费':'費','费':'費','数':'數','量':'量','设':'設','置':'置','备':'備','装':'裝','饰':'飾','态':'態','状':'狀','态':'態','连':'連','接':'接','务':'務','务':'務','员':'員','岛':'島','主':'主','获':'獲','取':'取','发':'發','放':'放','选':'選','择':'擇','类':'類','别':'別','查':'查','找':'找','页':'頁','页':'頁','确':'確','认':'認','认':'認','返':'返','回':'回','修':'修','改':'改','删':'刪','除':'除','清':'清','空':'空','重':'重','启':'啟','动':'動','开':'開','关':'關','闭':'閉','显':'顯','示':'示','隐':'隱','藏':'藏','当':'當','前':'前','后':'後','时':'時','间':'間','线':'線','线':'線','网':'網','络':'絡','断':'斷','败':'敗','败':'敗','误':'誤','错':'錯','无':'無','法':'法','请':'請','输':'輸','入':'入','个':'個','个':'個','条':'條','项':'項','邮':'郵','件':'件','箱':'箱','留':'留','言':'言','钱':'錢','包':'包','库':'庫','存':'存','货':'貨','币':'幣','礼':'禮','物':'物','素':'素','材':'材','泳':'泳','看':'看','板':'板','娘':'娘','扭':'扭','蛋':'蛋','概':'概','率':'率','保':'保','底':'底','池':'池','权':'權','重':'重','覆':'覆','盖':'蓋','阶':'階','梯':'梯','锁':'鎖','定':'定','搜':'搜','索':'索','过':'過','滤':'濾','全':'全','部':'部','选':'選','择':'擇','操':'操','作':'作','历':'歷','史':'史','结':'結','果':'果','服':'服','务':'務','器':'器','志':'誌','状':'狀','总':'總','览':'覽','刷':'刷','新':'新','危':'危','险':'險','险':'險','区':'區','域':'域','批':'批','份':'份','复':'復','原':'原','备':'備','份':'份','签':'簽','到':'到','公':'公','告':'告','已':'已','读':'讀','未':'未','领':'領','奖':'獎','增':'增','减':'減','加':'加','删':'刪','写':'寫','盘':'盤','即':'即','时':'時','效':'效','变':'變','更':'更','换':'換','转':'轉','型':'型','号':'號','码':'碼','称':'稱','名':'名','字':'字','简':'簡','体':'體','繁':'繁','语':'語','言':'言','标':'標','题':'題','说':'說','明':'明','提':'提','示':'示','帮':'幫','助':'助','问':'問','题':'題','这':'這','个':'個','页':'頁','面':'面','内':'內','容':'容','数':'數','据':'據','据':'據','来':'來','自':'自','于':'於','并':'並','且':'且','或':'或','者':'者','不':'不','可':'可','撤':'撤','销':'銷','退':'退','出':'出','游':'遊','戏':'戲','完':'完','成':'成','功':'功','失':'失','败':'敗','重':'重','试':'試','连':'連','线':'線','仅':'僅','显':'顯','示':'示','大':'大','于':'於','零':'零','按':'按','降':'降','序':'序','最':'最','多':'多','条':'條','留':'留','空':'空','则':'則','使':'使','用':'用','上':'上','方':'方','选':'選','中':'中','的':'的','物':'物','品':'品','填':'填','写':'寫','部':'部','位':'位','清':'清','除':'除','该':'該','槽':'槽','位':'位','本':'本','地':'地','存':'存','档':'檔','模':'模','拟':'擬','玩':'玩','家':'家','工':'工','具':'具','导':'導','航':'航','管':'管','理':'理','帐':'帳','号':'號','接':'接','收':'收','只':'只','会':'會','发':'發','送':'送','到':'到','立':'立','即':'即','写':'寫','入':'入','状':'狀','态':'態','查':'查','看':'看','邮':'郵','箱':'箱','背':'背','包':'包','分':'分','类':'類','直':'直','接':'接','设':'設','定':'定','六':'六','种':'種','货':'貨','币':'幣','值':'值','仅':'僅','显':'顯','示':'示','数':'數','量':'量','大':'大','于':'於','零':'零','的':'的','物':'物','品':'品','按':'按','数':'數','量':'量','降':'降','序':'序','最':'最','多':'多','条':'條'};
+function toTW(s) { return String(s).replace(/[一-龥]/g, ch => S2T[ch] || ch); }
+let LOCALE = 'zh-CN';
+try { LOCALE = localStorage.getItem('doaxvv_gm_lang') || 'zh-CN'; } catch (e) {}
+function t(key) {
+  if (LOCALE === 'en') return EN[key] || BASE[key] || key;
+  if (LOCALE === 'ja') return JA[key] || BASE[key] || key;
+  if (LOCALE === 'zh-TW') return toTW(BASE[key] === undefined ? key : BASE[key]);
+  return BASE[key] === undefined ? key : BASE[key];
 }
-function showTab(id, btn) {
-  document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-  document.getElementById('tab-' + id).classList.add('active');
-  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-function msg(id, text, ok=true) {
-  const e = document.getElementById(id);
-  e.textContent = text;
-  e.className = ok ? 'info' : 'error';
-}
-
-async function loadState() {
-  document.getElementById('connStatus').textContent = '连接中...';
-  document.getElementById('connStatus').style.color = '#a0a0a0';
-  document.getElementById('errOverlay').classList.remove('show');
-  try {
-    S = await api('state');
-    document.getElementById('connStatus').textContent = '已连接 ✓';
-    document.getElementById('connStatus').style.color = '#53d769';
-    document.getElementById('errOverlay').classList.remove('show');
-    renderGirl();
-    renderWallet();
-    renderItems();
-    renderGiftbox();
-    renderBonus();
-    loadGachaConfig();
-  } catch(e) {
-    document.getElementById('connStatus').textContent = '连接失败 ✗';
-    document.getElementById('connStatus').style.color = '#ff6b6b';
-    document.getElementById('errOverlay').classList.add('show');
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    const raw = BASE_PH[el.dataset.i18nPh];
+    el.placeholder = LOCALE === 'en' ? (EN[el.dataset.i18nPh] || raw) : LOCALE === 'ja' ? (JA[el.dataset.i18nPh] || raw) : LOCALE === 'zh-TW' ? toTW(raw) : raw;
+  });
+  document.documentElement.lang = LOCALE;
+  $('language-select').value = LOCALE;
+  renderRewardTypes();
+  if (S && S.main_girl_mid !== undefined) {
+    renderAccount();
+    if (!$('girl-view').hidden) renderGirl();
   }
 }
 
-// --- 看板娘 ---
-function renderGirl() {
+/* ---------- 静态主数据（由 csv_master 生成，无 BD2 数据） ---------- */
+const CATALOG_RAW = "0:35070,35071,35084,35519,37994;7:5098,35092,35128,35129,35130,35131,35132,35133,35134,35135,35136,35137,35138,35201,35215,35216,35217,35218,35219,35220,35221,35222,35223,35224,35225,35226,35248,35249,35255,35256,35257,35258,35259,35260,35261,35262,35263,35264,35265,35266,35283,35284,35285,35286,35287,35288,35289,35290,35291,35292,35293,35294,35295,35318,35319,35338,35344,35367,35368,35369,35370,35371,35372,35373,35374,35375,35376,35377,35378,35379,35380,35381,35382,35383,35384,35385,35386,35387,35388,35389,35390,35391,35392,35393,35394,35456,35457,35498,35564,35601,35630,35631,35632,35633,35634,35635,35636,35637,35638,35639,35640,35641,35642,35643,35644,35725,35726,35729,35746,35862,35863,35864,35865,35866,35867,35868,35869,35870,35871,35872,35873,35874,35875,35876,35877,35890,35891,35894,35908,35990,35991,35994,35997,36258,36259,36262,36265,36399,36400,36403,36406,36511,36512,36517,36518,36739,36740,36743,36745,36905,36906,36909,36911,37010,37011,37014,37016,37150,37151,37154,37156,37266,37267,37268,37269,37270,37271,37272,37273,37274,37275,37276,37277,37278,37279,37280,37281,37282,37283,37284,37285,37286,37287,37288,37289,37397,37398,37399,37400,37476,37535,37536,37539,37541,37548,37789,37790,37791,37792,37793,38300,38301,38302,38303,38304,38333,38334,38335,38336,38337,38338,38339,38340,38341,38342,38343,38344,38345,38346,38347,38348,38349,38350,38351,38352,38353,38354,38355,38356,38357,38358,38359,38360,38517,38518,38519,38520,38521,38522,38523,38524,38525,38526,38527,38528,38529,38530,38531,38532,38533,38534,38535,38536,38537,38538,38539,38540,38541,38542,38543,38544,38684,38685,38686,38687,38688,38707,38708,39054,39055,39056,39057,39058,39059,39060,39061,39062,39063,39064,39065,39066,39067,39068,39069,39070,39071,39072,39073,39074,39075,39076,39077,39078,39079,39080,39081,39082,39193,39194,39195,39196,39197,39198,39199,39330,39448,39449,39450,39451,39452,39453,39454,39457,39869,39870,39871,39872,39873,39874,39875,39876,39877,39878,39879,39880,39881,39882,39883,39884,39885,39886,39887,39888,39889,39890,39891,39892,39893,39894,39895,39896,39897,39898,39899,39900,39901,39902,39903,39904,39905,39906,39907,39908,39909,39910,39911,39912,39913,39914,39915,39916,39917,39918,39919,39920,39921,39922,39923,39924,39925,39926,39927,39928,39929,39930,40336,40337,40338,40339,40340,40341,40342,40345,40399,40400,40583,40584,40585,40586,40587,40588,40589,40590,40591,40592,40593,40594,40595,40596,40597,40598,40599,40600,40601,40602,40603,40604,40605,40606,40607,40608,40609,40610,40611,40612,40613,40614,41524,41525,41526,41527,41528,41529,41530,41531,41532,41533,41534,41535,41536,41537,41538,41539,41540,41541,41542,41543,41544,41545,41546,41547,41548,41549,41550,41551,41552,41553,41554,52118;10:35047,35048,35049,35050,35051,35052,35053,35054,35055,35056,35057,35058,35059,35060,35061,35062,35063,35064,35065,35123,35180,35244,35314,35459,35728,35893,35993,36261,36402,36742,36908,37013,37153,37404,37538,37788,38299,38683,39191,39296,39446;12:35012,35015,35016,35017,35018,35019,35521,35546,35557,35563,35569,35570,35700,35714,35812,35834,35909,35952,35961,36005,36028,36052,36053,36068,36078,36079,36083,36099,36176,36177,36236,36323,36335,36372,36377,36466,36609,36612,36614,36615,36620,36621,36622,36623,36624,36625,36626,36628,36629,36649,36651,36856,36901,36959,37026,37027,37028,37029,37032,37034,37035,37069,37182,37241,37328,37346,37393,37401,37402,37421,37422,37423,37424,37425,37428,37488,37495,37607,37610,37628,37629,37633,37634,37635,37659,37668,37670,37774,37833,37841,37842,37846,37847,37852,37859,37860,37861,37868,37869,37873,37874,37875,37891,37892,37893,37903,37918,37919,37920,37932,38005,38009,38014,38016,38021,38022,38179,38180,38221,38313,38365,38394,38404,38431,38549,38550,38634,38656,38664,38706,38713,38847,38848,38891,38892,38893,38894,38895,38896,38897,38898,38899,38900,38901,38902,38903,38904,38906,38907,38910,38914,38940,39017,39025,39027,39028,39029,39030,39031,39102,39124,39149,39178,39184,39209,39272,39301,39320,39331,39354,39364,39365,39366,39383,39422,39439,39484,39556,39566,39574,39622,39771,39868,39987,40008,40009,40041,40042,40044,40046,40047,40048,40049,40050,40051,40052,40053,40054,40055,40056,40057,40083,40090,40114,40191,40192,40201,40227,40234,40252,40267,40271,40280,40397,40410,40429,40449,40559,40574,40621,40624,40648,40651,40652,40675,40680,40681,40683,40684,40685,40686,41561,41562;14:35468,35469,35470,35471,35472,35473,35474,35475,35476,35477,35478,35479,35480,35481,35482,35483,35484,35485,35486,35487,35488,35489,35490,35491,35492,35493,35494,35495,35496,35497,35571,35572,36243,36652,36731,36825,36826,36827,36859,36994,37025,37235,37387,37506,37507,37508,37612,37656,37686,37885,37886,37887,38045,38181,38307,38319,38395,38434,38589,38644,38666,38849,39115,39127,39203,39359,39382,39406,39670,40040,40085,40198,40215,40286,40357,40411,40655;20:35037,35038,35039,35040,35041,35042,35043,35044,35045,35046,35122,35179,35243,35313,35458,35727,35892,35992,36260,36401,36741,36907,37012,37152,37403,37537,37787,38298,38682,39192,39295,39447;25:35023;26:35013;27:35021;28:35020,35022;30:35072,35828;31:35009,35010,35011;33:35085,35086,35087,35126,35127,35141,35173,35204,35205,35212,35250,35251,35278,35312,35330,35425,35426,35463,35589,35603,35663,35667,35736,35754,35781,35808,35824,35829,35851,35878,35912,35943,35967,36000,36031,36084,36145,36227,36244,36313,36383,36458,36460,36476,36539,36648,36706,36807,36836,36937,36955,37005,37042,37066,37108,37384,37410,37411,37513,37616,37773,37794,37865,37907,37908,38001,38007,38029,38036,38277,38280,38331,38484,38485,38597,38601,39431,39434,39462,40197;34:35025,35026,35027,35028,35029,37995,37996,39693,39694,39695,39696,39697,39698,39939,39940;35:35008,38031;36:25001;37:35024;38:35083;39:35001,35002,35003,35004,35030,35031,35032,35033,35066,35067,35068,35069,35076,35077,35078,35079,35673,35674,35675,35680,35681,35682,35687,35688,35689,35694,35695,35696;40:35005,35006,35007,35034,35035,35036,35073,35074,35075,35080,35081,35082,35676,35677,35678,35683,35684,35685,35690,35691,35692,35697,35698,35699;48:35103,35104,35105,35106,35107,35108,35109,35110,35111,35112,35125,35171,35178,35202,35211,35231,35246,35247,35252,35270,35271,35272,35281,35298,35316,35317,35323,35327,35334,35342,35343,35349,35350,35413,35445,35448,35449,35450,35454,35455,35462,35520,35528,35533,35534,35535,35537,35538,35542,35545,35547,35550,35551,35553,35554,35555,35562,35565,35568,35573,35586,35592,35593,35596,35608,35625,35662,35664,35705,35706,35707,35723,35724,35732,35744,35749,35750,35758,35759,35765,35783,35786,35787,35788,35810,35811,35813,35815,35827,35849,35850,35881,35882,35888,35889,35900,35901,35902,35903,35905,35911,35916,35937,35942,35948,35955,35960,35965,35969,35971,35972,35973,35974,35975,35976,35977,35978,35979,35980,35981,35982,35983,35984,35985,35986,35988,35989,36007,36008,36012,36013,36014,36015,36016,36017,36018,36019,36020,36021,36022,36023,36024,36025,36026,36027,36029,36034,36039,36046,36047,36049,36054,36061,36063,36065,36067,36086,36088,36089,36100,36102,36104,36106,36108,36110,36112,36114,36116,36117,36120,36121,36124,36141,36152,36153,36182,36183,36231,36239,36240,36253,36254,36256,36257,36320,36321,36324,36325,36347,36349,36350,36376,36379,36385,36386,36397,36398,36410,36414,36465,36468,36473,36488,36489,36501,36538,36540,36544,36548,36613,36617,36618,36638,36639,36650,36661,36662,36663,36664,36665,36666,36667,36668,36669,36670,36671,36672,36673,36674,36675,36676,36677,36678,36679,36680,36726,36727,36728,36729,36737,36738,36749,36750,36756,36759,36760,36761,36774,36810,36811,36812,36813,36824,36828,36831,36851,36854,36888,36889,36891,36897,36900,36903,36904,36915,36916,36920,36928,36932,36933,36945,36947,36952,36953,36961,36972,36977,36980,36981,36999,37001,37003,37004,37008,37009,37020,37023,37030,37031,37037,37038,37058,37062,37082,37087,37099,37100,37101,37105,37112,37116,37117,37118,37123,37127,37133,37134,37148,37149,37159,37161,37164,37167,37171,37172,37173,37174,37175,37179,37181,37231,37232,37233,37236,37290,37291,37292,37293,37294,37295,37296,37297,37298,37299,37300,37301,37302,37303,37304,37305,37306,37307,37308,37309,37310,37311,37312,37313,37322,37323,37324,37325,37326,37330,37341,37345,37347,37348,37349,37350,37354,37367,37368,37369,37374,37385,37386,37388,37389,37392,37395,37396,37447,37449,37477,37478,37479,37480,37481,37482,37483,37489,37496,37505,37509,37510,37515,37521,37522,37533,37534,37547,37563,37574,37577,37578,37580,37581,37584,37585,37589,37593,37608,37637,37639,37640,37641,37642,37643,37644,37651,37652,37653,37664,37665,37674,37682,37685,37688,37691,37692,37693,37694,37750,37751,37764,37768,37769,37770,37771,37772,37785,37786,37795,37798,37812,37814,37815,37816,37817,37818,37819,37820,37821,37822,37823,37824,37825,37826,37827,37828,37829,37834,37843,37844,37848,37849,37857,37858,37866,37870,37878,37879,37884,37888,37902,37905,37909,37910,37911,37922,37933,37937,37938,37998,38004,38008,38011,38013,38015,38017,38024,38026,38028,38039,38040,38042,38043,38046,38047,38049,38053,38054,38055,38056,38057,38058,38059,38060,38061,38062,38063,38064,38065,38066,38067,38068,38069,38070,38071,38072,38073,38074,38075,38076,38177,38182,38183,38185,38187,38194,38197,38198,38199,38200,38201,38202,38203,38204,38205,38206,38207,38208,38209,38210,38211,38212,38213,38214,38215,38216,38217,38218,38219,38220,38222,38223,38224,38225,38230,38231,38242,38272,38273,38296,38297,38306,38309,38310,38314,38315,38318,38320,38321,38328,38364,38366,38374,38376,38377,38378,38389,38393,38403,38407,38422,38430,38435,38438,38439,38472,38474,38497,38508,38509,38510,38511,38512,38513,38545,38546,38547,38548,38554,38562,38563,38564,38565,38566,38567,38568,38569,38570,38571,38572,38573,38574,38575,38576,38577,38578,38579,38580,38581,38582,38583,38584,38585,38586,38587,38588,38592,38595,38596,38599,38614,38615,38626,38631,38633,38636,38638,38643,38646,38647,38651,38657,38658,38663,38665,38667,38668,38669,38670,38671,38674,38675,38680,38681,38691,38693,38694,38695,38697,38709,38710,38714,38718,38784,38786,38817,38818,38819,38820,38821,38822,38823,38824,38825,38826,38827,38828,38829,38830,38831,38832,38833,38834,38835,38836,38837,38838,38839,38840,38841,38842,38843,38844,38845,38846,38851,38852,38871,38875,38876,38905,38913,38915,38926,38927,38933,38934,38936,38937,38942,38943,38944,38947,38948,38949,38963,38964,38965,38966,38969,38970,38971,38972,38973,38974,38975,38977,38978,38979,38980,38981,38982,38983,38984,38985,38986,38987,39012,39013,39022,39023,39026,39033,39036,39098,39099,39100,39101,39103,39109,39110,39113,39118,39121,39126,39129,39130,39133,39136,39140,39147,39150,39151,39152,39154,39156,39157,39158,39162,39163,39170,39171,39179,39180,39190,39202,39208,39252,39253,39254,39255,39256,39257,39258,39259,39260,39261,39262,39263,39264,39266,39267,39268,39269,39270,39271,39275,39276,39277,39298,39299,39304,39317,39323,39324,39334,39336,39337,39338,39339,39355,39356,39360,39361,39381,39390,39391,39392,39397,39400,39401,39402,39405,39410,39411,39413,39423,39436,39444,39445,39474,39475,39476,39486,39498,39502,39503,39516,39519,39520,39535,39543,39546,39547,39563,39564,39569,39611,39621,39669,39671,39673,39674,39675,39678,39679,39680,39681,39683,39684,39685,39686,39687,39688,39689,39690,39691,39692,39699,39700,39701,39702,39703,39704,39705,39707,39708,39710,39711,39712,39713,39715,39716,39717,39719,39720,39721,39722,39723,39724,39725,39726,39727,39728,39729,39761,39764,39765,39766,39944,39946,39947,39950,39968,39969,39970,39974,39975,39989,39990,39991,39994,39995,40010,40012,40039,40058,40063,40077,40082,40086,40087,40088,40103,40105,40106,40107,40108,40115,40116,40118,40119,40120,40121,40122,40125,40126,40128,40129,40130,40131,40132,40135,40136,40137,40138,40145,40146,40150,40183,40184,40194,40195,40199,40203,40216,40220,40226,40231,40232,40244,40248,40249,40250,40255,40256,40261,40262,40268,40278,40279,40285,40288,40332,40333,40347,40392,40407,40412,40413,40426,40430,40431,40433,40434,40439,40441,40445,40546,40548,40549,40556,40560,40564,40565,40566,40570,40571,40615,40622,40638,40639,40640,40641,40650,40653,40654,40660,40673,40674,40819,41523;49:35093,35094,35095,35096,35097,35098,35099,35100,35101,35102,35124,35177,35245,35315,35453,35722,35887,35987,36255,36396,36736,36902,37007,37147,37394,37532,37784,38295,38679,39189,39443,40331;50:35181,35182,35185,35186,35232,35233,35236,35237,35299,35300,35303,35304,35414,35415,35418,35419,35577,35578,35581,35582,35712,35771,35772,35775,35776,35859,35925,35926,35929,35930,35953,36090,36091,36094,36095,36132,36133,36136,36137,36318,36353,36354,36357,36358,36370,36394,36491,36492,36495,36496,36770,36840,36841,36844,36845,36899,36962,36963,36966,36967,37073,37074,37077,37078,37332,37333,37336,37337,37360,37412,37413,37416,37417,37595,37596,37599,37600,37650,37754,37755,37758,37759,37780,37839,37904,37923,37924,37927,37928,38237,38373,38379,38380,38383,38384,38401,38498,38499,38502,38503,38559,38625,38704,38916,38917,38920,38921,38959,39146,39177,39305,39306,39309,39310,39340,39341,39342,39343,39421,39483,39523,39524,39527,39528,39553,40005,40095,40206,40207,40210,40211,40240,40276,40348,40349,40352,40353,40424,40579;54:5084,35209,35268,35310,35443,35530,35540,35548,35590,35669,35755,35825,35879,36032,36143,36311,36381,36461,36805,36957,37110,37381,37613,38278;55:35116,35117,35169,35170,35253,35267,35273,35320,35321,35322,35324,35325,35326,35340,35341,35348,35351,35412,35447,35518,35543,35552,35556,35566,35567,35626,35671,35708,35742,35743,35814,35853,35854,35855,35856,35885,35970,36006,36009,36010,36011,36030,36036,36060,36062,36064,36066,36080,36081,36082,36085,36087,36101,36103,36105,36107,36109,36111,36113,36115,36184,36185,36186,36187,36188,36189,36190,36191,36192,36193,36241,36252,36326,36362,36378,36395,36452,36467,36479,36545,36619,36627,36635,36636,36637,36733,36734,36735,36763,36801,36814,36815,36816,36817,36818,36819,36820,36821,36822,36829,36860,36931,36954,37059,37107,37163,37168,37238,37239,37240,37361,37362,37363,37370,37409,37426,37427,37487,37491,37499,37500,37501,37502,37503,37516,37579,37590,37606,37657,37658,37752,37763,37832,37850,37862,37867,37880,37881,37882,37883,37890,37906,37999,38006,38012,38030,38041,38184,38189,38190,38191,38228,38238,38239,38270,38271,38317,38322,38330,38368,38396,38436,38553,38593,38618,38619,38620,38628,38637,38642,38652,38660,38661,38662,38673,38692,38705,38712,38721,38785,38850,38870,38872,38873,38874,38878,38941,38952,38953,38954,38960,38961,39018,39034,39107,39116,39134,39137,39138,39139,39201,39204,39294,39325,39363,39398,39414,39415,39416,39435,39438,39461,39490,39504,39548,39558,39559,39560,39562,39573,39575,39767,39768,39941,39942,39943,39945,39992,39993,40038,40062,40096,40097,40098,40151,40189,40190,40196,40202,40224,40225,40241,40242,40243,40266,40283,40292,40417,40440,40550,40557,40580,40581,40582,40645,40659,40661,40678,40679,40682,41557,41558;57:35645,35646,35647,35648,35649,35650,35651,35652,35653,35654,35655,35656,35657,35658,35659,37242,37243,37244,37245,37246,37247,37248,37249,37250,37251,37252,37253,37254,37255,37256,37257,37258,37259,37260,37261,37262,37263,37264,37265,37380,37680,37684,37851,37854;58:35183,35184,35187,35188,35234,35235,35238,35239,35301,35302,35305,35306,35416,35417,35420,35421,35558,35559,35560,35579,35580,35583,35584,35773,35774,35777,35778,35927,35928,35931,35932,36092,36093,36096,36097,36134,36135,36138,36139,36355,36356,36359,36360,36453,36454,36455,36493,36494,36497,36498,36771,36772,36773,36842,36843,36846,36847,36964,36965,36968,36969,37075,37076,37079,37080,37334,37335,37338,37339,37414,37415,37418,37419,37597,37598,37601,37602,37756,37757,37760,37761,37925,37926,37929,37930,38381,38382,38385,38386,38500,38501,38504,38505,38918,38919,38922,38923,39307,39308,39311,39312,39344,39345,39346,39347,39525,39526,39529,39530,40208,40209,40212,40213,40350,40351,40354,40355;59:35189,35240,35307,35422,35585,35713,35779,35835,35933,35957,36057,36098,36140,36322,36361,36371,36415,36499,36766,36848,36898,36970,37081,37340,37359,37420,37603,37649,37762,37779,37871,37900,37931,38236,38372,38387,38400,38506,38558,38624,38703,38924,38958,39145,39176,39313,39348,39420,39482,39531,39552,40004,40094,40214,40239,40275,40356,40423,40578;60:35210,35269,35311,35444,35531,35541,35549,35591,35670,35756,35826,35880,36033,36144,36312,36382,36462,36806,36958,37111,37382,37614,38279;61:35229;63:35276,35279,35328,35396,35397,35446,35452,35628,35629,35789,35790,35860,35861,35935,35936,35958,35959,36041,36059,36147,36148,36149,36150,36232,36237,36333,36334,36550,36631,36632,36752,36757,36802,36803,36804,36853,36917,36918,36934,36935,36979,36983,36995,37064,37065,37114,37115,37351,37484,37485,37587,37588,37611,37666,37667,37836,37837,37863,37864,37895,37896,38002,38003,38226,38227,38311,38312,38316,38326,38327,38405,38432,38433,38473,38551,38552,38598,38648,38649,38698,38699,38711,38719,38720,38935,38945,39326,39327;64:35331,35427,35597,35760,35938,36055,36122,36363,36456,36503,36640,36835,36921,36974,37040,37089,37126,37344,37377,37605,37767,37935,38038,38245,38391,38654,38677,38929,39016,39120,39183,39319,39350,39358,39425,39537,40187,40254,40282,40402,40437,40563;65:35332,35428,35598,35761,35939,36056,36123,36364,36457,36504,36641,36834,36922,36973,37039,37088,37125,37343,37376,37604,37766,37934,38037,38244,38390,38653,38676,38928,39015,39119,39182,39318,39349,39357,39424,39536,40186,40253,40281,40401,40436,40562;68:35465;72:35857,35858;73:35702,35830,35949,36314,36367,36391,36767,36893,37070,37356,37646,37776,37897,38233,38369,38397,38555,38621,38700,38955,39142,39173,39417,39479,39549,40001,40091,40236,40272,40420,40575;74:35703,35831,35950,36315,36368,36392,36768,36894,37071,37357,37647,37777,37898,38234,38370,38398,38556,38622,38701,38956,39143,39174,39418,39480,39550,40002,40092,40237,40273,40421,40576;75:35704,35832,35951,36316,36369,36393,36769,36895,37072,37358,37648,37778,37899,38235,38371,38399,38557,38623,38702,38957,39144,39175,39419,39481,39551,40003,40093,40238,40274,40422,40577;77:35963;78:35964;83:36038;84:36156,36157,36158,36159,36160,36161,36162,36163,36164,36165,36166,36167,36168,36169,36170,36171,36245,36246,36247,36248,36339,36340,36341,36342,36343,36344,36345,36346,36653,36654,36655,36656,36657,36658,36659,36660,36986,36987,36988,36989,36990,36991,36992,36993,37128,37314,37315,37316,37317,37318,37319,37320,37321,37514,37617,37618,37619,37620,37621,37622,37623,37624,37625,37626,37627,37948,37949,37950,37951,37986,37987,37988,37989,37990,37991,37992,37993,38019,38034,38035,38128,38129,38130,38131,38132,38133,38134,38135,38136,38137,38138,38139,38140,38141,38142,38143,38144,38145,38146,38147,38148,38149,38150,38151,38413,38414,38415,38416,38417,38418,38419,38420,38423,38424,38425,38426,38469,38470,38471,38787,38857,38858,38859,38861,38862,38863,38864,38865,38866,38867,38868,38869,39205,39278,39279,39280,39281,39282,39283,39284,39285,39287,39288,39289,39290,39291,39292,39293,39335,39635,39931,39932,39933,39934,39935,39936,39937,39938,40284;85:36229;87:36642,36643,36644,36645,36647,36857,36862,36863,36864,36868,36869,36870,37043,37044,37045,37049,37050,37051,37564,37565,37566,37570,37571,37572,37802,37803,37804,37808,37809,37810,38281,38282,38283,38287,38288,38289,38486,38487,38488,38492,38493,38494,38602,38603,38604,38608,38609,38610,39210,39211,39212,39216,39217,39218,39463,39464,39465,39469,39470,39471,39977,39978,39979,39983,39984,39985,40663,40664,40665,40669,40670,40671;89:36681;90:36871,37052,37573,37811,37840,38290,38495,38611,39219,39472,39986,40672;91:36872,36873,36874,36876,36877,36878,36879,36880,36881,38308,38591,39459,39493,39495;92:36865,36866,36867,37046,37047,37048,37567,37568,37569,37805,37806,37807,38284,38285,38286,38489,38490,38491,38605,38606,38607,39213,39214,39215,39466,39467,39468,39980,39981,39982,40666,40667,40668;93:35561,36050,36051,36058,36373,36374,36375,36633,36634,39568;94:36975;95:37119,37145,37146;97:36682,36707,36708,36709,36710,36711,36712,36713,36714,36715,36716,36717,36718,36719,36720,36721,36722,36723,36724,36725,36941,37021,37022,37183,37184,37185,37186,37187,37188,37189,37190,37191,37192,37193,37194,37195,37196,37197,37198,37199,37200,37201,37202,37203,37204,37205,37206,37448,37679,37853,38018,38032,38033,38104,38105,38106,38107,38108,38109,38110,38111,38112,38113,38114,38115,38116,38117,38118,38119,38120,38121,38122,38123,38124,38125,38126,38127,38629,38723,38724,38725,38726,38727,38728,38729,38730,38731,38732,38733,38734,38735,38736,38737,38738,38739,38740,38741,38742,38743,38744,38745,38746,38747,38748,38749,38750,38751,39332,39403,39730,39731,39732,39733,39734,39735,39736,39738,39739,39741,39742,39743,39744,39746,39747,39748,39750,39751,39752,39753,39754,39755,39756,39757,39758,39759,39760,40011,40013,40217,40547;98:37176,37177,37178;101:37980;102:37982,37983,37984;105:37981,38027,38363,38616,38950,39135,39412,40089,40233,40572;109:38613,38962,39132,39352,40080,40218,40567;111:38781,38782;112:38853,38908,38911,39367,39393,39507,39577,40064,40228,40294,40554,40620,40647;113:38854,38909,38912,39368,39394,39508,39578,40065,40229,40295,40555,40619,40646;114:39165,39166,39167,39168,39169;115:38640,38641,38659,39104,39105,39111,39122,39123,39159,39160,39273,39274,39300,39303,39384,39385,39396,39432,39433,39460,39488,39489,39499,39500,39501,39517,39544,39545,39561,39565,39570,39571,39572,39623,39668,39762,39763,39971,39972,39973,39998,39999,40000,40059,40060,40061,40100,40101,40102,40111,40112,40113,40148,40149,40221,40222,40223,40245,40246,40247,40263,40264,40265,40289,40290,40291,40393,40394,40414,40415,40416,40427,40428,40435,40442,40443,40551,40552,40553,40616,40617,40642,40643,40644,40649,40656,40657,40658;116:40444,41563;117:39429;118:39557;121:39967;122:40006,40007;126:37033,37036,37405,37406,37429,37430,37431,37432,37433,37434,37435,37436,37437,37438,37439,37440,37441,37442,37443,37444,37445,37912,37913,37914,37915,37916,38879,38880,38881,38882,38883,38884,38885,38886,38887,38888,38889,38890,39369,39370,39371,39372,39373,39374,39375,39376,39377,39378,39379,39380,40625,40626,40627,40628,40629,40630,40631,40632,40633,40634,40635,40636;127:37845";
+const TYPE_OPTIONS = [{"id": 0, "count": 5, "name": "类型 0"}, {"id": 7, "count": 449, "name": "材料"}, {"id": 10, "count": 41, "name": "消耗品"}, {"id": 12, "count": 233, "name": "道具"}, {"id": 14, "count": 77, "name": "类型 14"}, {"id": 20, "count": 32, "name": "好感度礼物"}, {"id": 25, "count": 1, "name": "金币"}, {"id": 26, "count": 1, "name": "客人点数"}, {"id": 27, "count": 1, "name": "免费V石"}, {"id": 33, "count": 80, "name": "类型 33"}, {"id": 34, "count": 15, "name": "类型 34"}, {"id": 35, "count": 2, "name": "活动货币"}, {"id": 39, "count": 28, "name": "强化素材"}, {"id": 40, "count": 24, "name": "觉醒素材"}, {"id": 48, "count": 1007, "name": "维纳斯货币"}, {"id": 49, "count": 32, "name": "类型 49"}, {"id": 50, "count": 139, "name": "类型 50"}, {"id": 54, "count": 24, "name": "类型 54"}, {"id": 55, "count": 262, "name": "类型 55"}, {"id": 57, "count": 44, "name": "类型 57"}, {"id": 58, "count": 117, "name": "类型 58"}, {"id": 59, "count": 59, "name": "类型 59"}, {"id": 60, "count": 23, "name": "类型 60"}, {"id": 63, "count": 88, "name": "类型 63"}, {"id": 64, "count": 42, "name": "类型 64"}, {"id": 65, "count": 42, "name": "类型 65"}, {"id": 73, "count": 31, "name": "类型 73"}, {"id": 74, "count": 31, "name": "类型 74"}, {"id": 75, "count": 31, "name": "类型 75"}, {"id": 84, "count": 159, "name": "类型 84"}, {"id": 87, "count": 72, "name": "类型 87"}, {"id": 90, "count": 12, "name": "类型 90"}, {"id": 91, "count": 14, "name": "类型 91"}, {"id": 92, "count": 33, "name": "类型 92"}, {"id": 93, "count": 10, "name": "类型 93"}, {"id": 97, "count": 140, "name": "类型 97"}, {"id": 105, "count": 10, "name": "类型 105"}, {"id": 109, "count": 7, "name": "类型 109"}, {"id": 112, "count": 13, "name": "类型 112"}, {"id": 113, "count": 13, "name": "类型 113"}, {"id": 114, "count": 5, "name": "类型 114"}, {"id": 115, "count": 88, "name": "类型 115"}, {"id": 126, "count": 62, "name": "类型 126"}];
+const TYPE_NAME = {};
+TYPE_OPTIONS.forEach(o => { TYPE_NAME[o.id] = o.name; });
+const GIRL_IDS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33];
+/* 看板娘名称：由 _tools/build_girl_names.py 从 csv_master/看板娘名称表.csv 生成。
+   girl_mid = skill_char.csv 的 ID + 1；值为 [中文, 日文, 英文]。改名字请改 csv 表后重跑脚本。 */
+const GIRL_NAMES = {
+  2:["霞", "かすみ", "Kasumi"],
+  3:["穗香", "ほのか", "Honoka"],
+  4:["玛莉萝丝", "マリー・ローズ", "Marie Rose"],
+  5:["绫音", "あやね", "Ayane"],
+  6:["女天狗", "女天狗", "Nyotengu"],
+  7:["心", "こころ", "Kokoro"],
+  8:["瞳", "ひとみ", "Hitomi"],
+  9:["红叶", "紅葉", "Momiji"],
+  10:["海莲娜", "エレナ", "Elena"],
+  11:["海咲", "みさき", "Misaki"],
+  12:["露娜", "ルナ", "Luna"],
+  13:["环", "たまき", "Tamaki"],
+  14:["丽凤", "レイファン", "Lei Fang"],
+  15:["菲欧娜", "フィオナ", "Fiona"],
+  16:["凪咲", "なぎさ", "Nagisa"],
+  17:["神无", "カンナ", "Kanna"],
+  18:["莫妮卡", "モニカ", "Monica"],
+  19:["小百合", "さゆり", "Sayuri"],
+  20:["派蒂", "パティ", "Patty"],
+  21:["筑紫", "つくし", "Tsukushi"],
+  22:["萝贝莉娅", "ロベリア", "Lobelia"],
+  23:["七海", "ななみ", "Nanami"],
+  24:["伊莉丝", "エリーゼ", "Elise"],
+  25:["小春", "こはる", "Koharu"],
+  26:["蒂娜", "ティナ", "Tina"],
+  27:["艾米", "エイミー", "Amy"],
+  28:["香迪", "シャンディ", "Shandy"],
+  29:["雪乃", "ゆきの", "Yukino"],
+  30:["雫", "しずく", "Shizuku"],
+  31:["Twenty（二十）", "ツゥエンティ", "Twenty"],
+  32:["占位角色 1", "ダミー1", "Dummy 1"],
+  33:["占位角色 2", "ダミー2", "Dummy 2"]
+};
+function girlName(id) {
+  const v = GIRL_NAMES[id];
+  if (!v) return 'girl_' + id;
+  if (LOCALE === 'ja') return v[1];
+  if (LOCALE === 'en') return v[2];
+  if (LOCALE === 'zh-TW') return toTW(v[0]);
+  return v[0];
+}
+function girlLabel(id) { return girlName(id) + ' (' + id + ')'; }
+function girlSub(id) {
+  const v = GIRL_NAMES[id];
+  return (v ? (LOCALE === 'ja' ? v[0] : v[1]) + ' · ' : '') + 'girl_mid ' + id;
+}
+const CATALOG = [];
+CATALOG_RAW.split(';').forEach(group => {
+  if (!group) return;
+  const parts = group.split(':');
+  const ty = parseInt(parts[0], 10);
+  (parts[1] || '').split(',').forEach(m => { if (m) CATALOG.push({ mid: parseInt(m, 10), type: ty }); });
+});
+CATALOG.sort((a, b) => a.mid - b.mid);
+const CAT_INDEX = {};
+CATALOG.forEach((it, i) => { CAT_INDEX[it.mid] = i; });
+
+/* ---------- 名称修正表 (GM 专属映射, 存 GM/gm_names.csv, 不改原始主数据) ---------- */
+let nameMap = { items: {}, groups: {}, types: {} };
+async function loadNames() {
+  try {
+    const r = await api('names');
+    nameMap = { items: r.items || {}, groups: r.groups || {}, types: r.types || {} };
+  } catch (e) { /* 服务器未升级时静默降级, 只显示原始分类名 */ }
+}
+function typeName(type) {
+  return nameMap.types[String(type)] || TYPE_NAME[type] || (type !== undefined ? '类型 ' + type : '—');
+}
+function itemName(mid, type) {
+  const ov = nameMap.items[String(mid)];
+  if (ov) return ov;
+  return typeName(type);
+}
+
+/* ---------- 运行时状态 ---------- */
+let S = {};
+let catalogPage = 1, catalogType = 0, catalogQuery = '', catalogSize = 50;
+let gachaConfig = null, currentGachaMid = null, currentGachaPool = {}, gachaVisibleData = [];
+let gachaVisiblePage = 1, gachaVisibleDirty = false;
+const GACHA_VISIBLE_PAGE_SIZE = 50;
+let pendingAction = null;
+const HISTORY_KEY = 'doaxvv_gm_history';
+
+/* ---------- 防重复提交 (2026-11-12) ----------
+ * 所有 id 以 save- 开头的按钮自动纳入保护: 点击瞬间禁用并打标记, 处理期间再点直接拦下,
+ * 网络请求全部结束后自动恢复。彻底避免"连点两次 -> 请求并发 -> 状态互相覆盖"导致的 bug。 */
+let _netInflight = 0;
+const _busyBtns = new Set();
+let _busyTimer = 0;
+function _releaseBusy() {
+  _busyBtns.forEach(b => { b.disabled = false; delete b.dataset.busy; });
+  _busyBtns.clear();
+  clearTimeout(_busyTimer);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest ? e.target.closest('button') : null;
+  // save-* 与显式标了 data-guard 的按钮一律纳入保护 (脚本在 </body> 前执行也能生效)
+  const guarded = b && ((b.id && b.id.indexOf('save-') === 0) || b.dataset.guard === '1');
+  if (!guarded) return;
+  if (b.dataset.busy === '1') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    showNotice('操作正在处理中，请勿重复点击。', true);
+    return;
+  }
+  b.dataset.busy = '1'; b.disabled = true; _busyBtns.add(b);
+  clearTimeout(_busyTimer);
+  _busyTimer = setTimeout(_releaseBusy, 8000);   // 兜底: 异常情况下 8 秒后恢复
+  // 弹确认框的按钮不会立刻发请求 -> 0.9 秒内没有新请求就恢复可点
+  const _snap = _netInflight;
+  setTimeout(() => { if (_netInflight === _snap) _releaseBusy(); }, 900);
+}, true);
+
+async function api(path, opts) {
+  _netInflight++;
+  try {
+    const r = await fetch(API + path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally {
+    _netInflight--;
+    if (_netInflight <= 0) { _netInflight = 0; _releaseBusy(); }
+  }
+}
+function post(path, data, label, target) {
+  return api(path, { method: 'POST', body: JSON.stringify(data || {}) })
+    .then(res => { addHistory(label, target, true); return res; })
+    .catch(err => { addHistory(label, target, false); throw err; });
+}
+function showNotice(text, isError) {
+  const n = $('notification');
+  n.textContent = text;
+  n.classList.toggle('error', !!isError);
+  n.hidden = false;
+  clearTimeout(showNotice.timer);
+  showNotice.timer = setTimeout(() => { n.hidden = true; }, 4500);
+}
+function addHistory(action, target, ok) {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (e) {}
+  list.unshift({ t: new Date().toLocaleString('zh-CN', { hour12: false }), action, target: String(target || '—'), ok: !!ok });
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 200))); } catch (e) {}
+  renderHistory();
+}
+function renderHistory() {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (e) {}
+  const body = $('history-body');
+  body.innerHTML = '';
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center">暂无记录</td></tr>';
+  } else {
+    list.slice(0, 50).forEach(h => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + esc(h.t) + '</td><td>' + esc(h.action) + '</td><td>' + esc(h.target) + '</td><td>' +
+        (h.ok ? '<span class="badge">成功</span>' : '<span class="badge off">失败</span>') + '</td>';
+      body.appendChild(tr);
+    });
+  }
+  $('history-total').textContent = '共 ' + list.length + ' 条' + (list.length > 50 ? '（显示前 50 条）' : '');
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+/* ---------- 连接与总状态 ---------- */
+function setConn(ok, text) {
+  const c = $('conn');
+  c.className = 'conn ' + (ok ? 'ok' : 'bad');
+  $('conn-text').textContent = text || t(ok ? 'page.connected' : 'page.failed');
+  $('err-overlay').classList.toggle('show', !ok);
+  $('workspace').hidden = !ok;
+}
+async function loadState() {
+  setConn(true, t('page.connecting'));
+  try {
+    S = await api('state');
+    await loadNames();
+    renderRewardTypes();
+    setConn(true);
+    renderAccount();
+    renderWallet();
+    renderStock();
+    renderMails();
+    renderGirl();
+    renderSaveStats();
+    renderVenus();
+    renderCatalog();
+    renderHistory();
+    await loadGachaConfig();
+    await loadGachaVisible();
+    await loadGachaGroups();
+    await loadOwnerProfile();
+  } catch (e) {
+    setConn(false);
+  }
+}
+/* ---------- 岛主资料 (岛主名 / 岛名 / 留言) ---------- */
+async function loadOwnerProfile() {
+  try {
+    const d = await api('owner_profile');
+    const op = d.owner_profile || {};
+    $('own-name').value = op.name || '';
+    $('own-island').value = op.island_name || '';
+    $('own-message').value = op.message || '';
+  } catch (e) { /* 老服务端没有该接口时静默降级 */ }
+}
+function fmt(n) { return (n === undefined || n === null) ? '—' : Number(n).toLocaleString('zh-CN'); }
+function renderAccount() {
   const mg = S.main_girl_mid;
-  document.getElementById('curMainGirl').textContent = GIRL_NAMES[mg] || ('girl_' + mg);
-  const eq = S.girl_equipment || {};
-  document.getElementById('girlCount').textContent = Object.keys(eq).length + ' 个女孩';
-  const grid = document.getElementById('girlGrid');
-  grid.innerHTML = '';
-  const mids = Object.keys(eq).map(Number).sort((a,b)=>a-b);
-  if (!mids.includes(mg)) mids.unshift(mg);
-  mids.forEach(mid => {
-    const d = document.createElement('div');
-    d.className = 'girl-card' + (mid === mg ? ' selected' : '');
-    d.innerHTML = `<div class="name">${GIRL_NAMES[mid] || 'girl_' + mid}</div><div class="mid">mid: ${mid}</div>`;
-    d.onclick = () => selectGirl(mid);
-    grid.appendChild(d);
+  $('auto-uid').textContent = '岛主 ID ' + ((S.wallet && S.wallet.owner_id) || OWNER_ID);
+  $('account-line').textContent = '岛主 ID ' + ((S.wallet && S.wallet.owner_id) || OWNER_ID) +
+    ' · ' + t('girl.current') + ' ' + girlLabel(mg);
+}
+function renderWallet() {
+  const w = S.wallet || {};
+  $('wZack').value = w.zack_money ?? 0;
+  $('wFreeVstone').value = w.free_vstone ?? 0;
+  $('wGuest').value = w.guest_point ?? 0;
+  $('wVip').value = w.vip_point ?? 0;
+  $('wPaid').value = w.paid_vstone ?? 0;
+  $('wVipCoin').value = w.vip_coin ?? 0;
+}
+const STOCK_PAGE_SIZE = 20;
+let stockPage = 1;
+function renderStock(resetPage) {
+  if (resetPage === true) stockPage = 1;
+  const ic = S.item_counts || {};
+  const q = ($('stock-filter').value || '').trim();
+  const all = Object.keys(ic).filter(k => Number(ic[k]) > 0 && (!q || k.indexOf(q) !== -1))
+    .map(k => ({ mid: Number(k), count: Number(ic[k]) })).sort((a, b) => b.count - a.count);
+  const total = all.length;
+  const pages = Math.max(1, Math.ceil(total / STOCK_PAGE_SIZE));
+  if (stockPage > pages) stockPage = pages;
+  if (stockPage < 1) stockPage = 1;
+  const rows = all.slice((stockPage - 1) * STOCK_PAGE_SIZE, stockPage * STOCK_PAGE_SIZE);
+  $('stock-body').innerHTML = rows.length ? rows.map(r =>
+    '<tr><td class="num">' + r.mid + '</td><td class="num">' + fmt(r.count) + '</td><td>' + esc(itemName(r.mid, CAT_INDEX[r.mid] !== undefined ? CATALOG[CAT_INDEX[r.mid]].type : undefined)) + '</td>' +
+    '<td class="col-actions"><button class="button sm stock-edit" type="button" data-mid="' + r.mid + '" data-count="' + r.count + '">' + t('stock.editCount') + '</button></td></tr>'
+  ).join('') : '<tr><td colspan="4" class="muted" style="text-align:center">—</td></tr>';
+  $('stock-total').textContent = '共 ' + total + ' 项';
+  $('stock-page').textContent = stockPage + ' / ' + pages;
+  $('stock-prev').disabled = stockPage <= 1;
+  $('stock-next').disabled = stockPage >= pages;
+}
+/* ---------- 当前库存：单条修改数量（覆盖写入 item_counts） ---------- */
+let qtyTarget = null, qtyBusy = false;
+function openQty(mid, count) {
+  mid = Number(mid); count = Number(count);
+  qtyTarget = { mid: mid, count: count };
+  const typeId = CAT_INDEX[mid] !== undefined ? CATALOG[CAT_INDEX[mid]].type : undefined;
+  $('qty-target').textContent = 'item_mid ' + mid + ' · ' + itemName(mid, typeId) + ' · 当前数量 ' + fmt(count);
+  $('qty-input').value = String(count);
+  const d = $('qty-dialog'); d.returnValue = '';
+  d.showModal();
+  setTimeout(() => { $('qty-input').focus(); $('qty-input').select(); }, 60);
+}
+/* 提交前校验：非整数 / 负数 / 与当前值相同 -> 拦下提示，不关窗、不发请求 */
+$('qty-dialog').querySelector('form').addEventListener('submit', e => {
+  if (!e.submitter || e.submitter.value !== 'save') return;
+  const raw = ($('qty-input').value || '').trim();
+  const n = Number(raw);
+  if (!raw || !Number.isFinite(n) || n < 0 || Math.floor(n) !== n) {
+    e.preventDefault(); showNotice('输入有误：请填写 0 或正整数。', true); return;
+  }
+  if (qtyTarget && n === qtyTarget.count) {
+    e.preventDefault(); showNotice('数量没有变化，无需重复提交。', true); return;
+  }
+});
+$('qty-dialog').addEventListener('close', async () => {
+  const rv = $('qty-dialog').returnValue;
+  const tgt = qtyTarget;
+  qtyTarget = null;
+  if (rv !== 'save' || !tgt) return;
+  if (qtyBusy) { showNotice('上一次修改还在提交中，请稍候。', true); return; }
+  const n = Math.floor(Number($('qty-input').value));
+  qtyBusy = true;
+  try {
+    await post('items', { item_mid: tgt.mid, count: n, action: 'set' }, '修改库存数量', 'item_mid ' + tgt.mid + ' ×' + fmt(n));
+    showNotice(n > 0 ? ('已将 item_mid ' + tgt.mid + ' 的数量设为 ' + fmt(n) + '。') : ('已将 item_mid ' + tgt.mid + ' 移出库存。'));
+    await loadState();
+  } catch (e) { showNotice('保存失败：' + e.message, true); }
+  finally { qtyBusy = false; }
+});
+$('stock-body').addEventListener('click', e => {
+  const b = e.target.closest('.stock-edit');
+  if (!b) return;
+  openQty(b.dataset.mid, b.dataset.count);
+});
+function renderMails() {
+  const mails = S.custom_mails || [];
+  $('mails-body').innerHTML = mails.length ? mails.slice().reverse().map(m =>
+    '<tr><td>' + esc(m.created_at || '—') + '</td><td class="num">' + esc(m.item_mid) + '</td><td class="num">' + fmt(m.count) + '</td><td>' + esc(m.message || '') + '</td></tr>'
+  ).join('') : '<tr><td colspan="4" class="muted" style="text-align:center">—</td></tr>';
+}
+function renderSaveStats() {
+  const w = S.wallet || {};
+  const ic = S.item_counts || {};
+  const nz = Object.keys(ic).filter(k => Number(ic[k]) > 0).length;
+  const items = [
+    [t('save.overview'), ''],
+    [t('wallet.zack'), fmt(w.zack_money)],
+    [t('save.stock'), nz + ' 项'],
+    [t('mails.title'), (S.custom_mails || []).length + ' 封'],
+    [t('girl.current'), girlName(S.main_girl_mid)],
+    [t('save.gacha'), Object.keys(S.gacha_config || {}).length + ' 组配置']
+  ];
+  $('save-stats').innerHTML = items.slice(1).map(([k, v]) => '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>').join('');
+}
+
+function renderVenus() {
+  const vb = S.venus_board || {};
+  const girls = vb.girls || [];
+  const done = girls.filter(g => g.total > 0 && g.opened >= g.total).length;
+  const items = [
+    [t('venus.panels'), fmt(vb.opened_panels || 0) + ' / ' + fmt(vb.total_panels || 0)],
+    [t('venus.girls'), done + ' / ' + girls.length],
+    [t('venus.rewardState'), vb.rewards_granted ? t('venus.granted') : t('venus.notGranted')],
+    [t('venus.maxedAt'), vb.maxed_at || '—']
+  ];
+  $('venus-stats').innerHTML = items.map(([k, v]) => '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>').join('');
+}
+
+/* ---------- 物品目录 ---------- */
+function renderRewardTypes() {
+  const sel = $('reward-type');
+  const cur = sel.value || '0';
+  sel.innerHTML = '<option value="0">' + (LOCALE === 'en' ? 'All items' : LOCALE === 'ja' ? 'すべて' : '全部物品') + ' (' + CATALOG.length + ')</option>' +
+    TYPE_OPTIONS.map(o => '<option value="' + o.id + '">' + esc(LOCALE === 'zh-TW' ? toTW(nameMap.types[String(o.id)] || o.name) : (nameMap.types[String(o.id)] || o.name)) + ' · ' + o.count + '</option>').join('');
+  sel.value = cur;
+}
+function filteredCatalog() {
+  const q = catalogQuery.toLowerCase();
+  return CATALOG.filter(it => {
+    if (catalogType && it.type !== catalogType) return false;
+    if (!q) return true;
+    return String(it.mid).indexOf(q) !== -1 || typeName(it.type).toLowerCase().indexOf(q) !== -1;
   });
 }
-async function selectGirl(mid) {
-  try {
-    await api('girl', {method:'POST', body: JSON.stringify({main_girl_mid: mid})});
-    msg('equipMsg', '');
+function itemLabel(it) {
+  const stock = (S.item_counts || {})[String(it.mid)];
+  const name = itemName(it.mid, it.type);
+  return 'item_mid ' + it.mid + ' · ' + name + (stock !== undefined ? ' · 库存 ' + fmt(stock) : '');
+}
+function renderCatalog() {
+  const list = filteredCatalog();
+  const pages = Math.max(1, Math.ceil(list.length / catalogSize));
+  catalogPage = Math.min(Math.max(1, catalogPage), pages);
+  const slice = list.slice((catalogPage - 1) * catalogSize, catalogPage * catalogSize);
+  const sel = $('reward-id');
+  const prev = sel.value;
+  sel.innerHTML = slice.map(it => '<option value="' + it.mid + '" data-item-type="' + it.type + '">' + esc(itemLabel(it)) + '</option>').join('') ||
+    '<option value="">—</option>';
+  if (slice.some(it => String(it.mid) === prev)) sel.value = prev;
+  $('catalog-hint').textContent = '共 ' + list.length + ' 项，第 ' + catalogPage + ' / ' + pages + ' 页';
+  $('catalog-prev').disabled = catalogPage <= 1;
+  $('catalog-next').disabled = catalogPage >= pages;
+  updateQuantityLimit();
+}
+function updateQuantityLimit() {
+  const opt = $('reward-id').selectedOptions[0];
+  if (!opt) return;
+  const type = parseInt(opt.getAttribute('data-item-type') || '0', 10);
+  const max = (type === 25 || type === 26 || type === 27 || type === 48) ? 1000000 : 99999;
+  $('reward-count').max = max;
+  if (Number($('reward-count').value) > max) $('reward-count').value = max;
+  $('quantity-hint').textContent = '单次最多 ' + fmt(max) + '。';
+}
+function chosenMid() {
+  const custom = parseInt($('custom-mid').value, 10);
+  if (custom > 0) return custom;
+  return parseInt($('reward-id').value, 10) || 0;
+}
+
+/* ---------- 发放奖励 ---------- */
+$('mail-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const mid = chosenMid();
+  const count = parseInt($('reward-count').value, 10) || 1;
+  const method = $('reward-method').value;
+  if (!mid) { showNotice('请选择物品或输入有效的 item_mid。', true); return; }
+  const names = { mail: '发送到游戏邮箱', set: '设置库存数量' };
+  const desc = 'item_mid ' + mid + ' × ' + fmt(count) + '\n' +
+    '方式：' + (names[method] || method) + (method === 'set' ? '（覆盖为指定数量，不是累加）' : '') + '\n' +
+    (method === 'mail' ? '留言：' + ($('mail-message').value || 'GM发放') + '\n' : '') +
+    '目标：岛主 ID ' + ((S.wallet && S.wallet.owner_id) || OWNER_ID);
+  pendingAction = async () => {
+    let res;
+    if (method === 'mail') {
+      res = await post('giftbox/send', { item_mid: mid, count, message_type: parseInt($('mail-type').value, 10) || 10, message: $('mail-message').value || 'GM发放' }, '发放邮件', 'item_mid ' + mid + ' ×' + count);
+    } else {
+      res = await post('items', { item_mid: mid, count, action: 'set' }, '发放物品', 'item_mid ' + mid + ' ×' + count);
+    }
+    showNotice(method === 'mail' ? '邮件已发送，请回到游戏邮箱领取。' : '库存数量已设置为 ' + fmt(count) + '。');
+    $('custom-mid').value = '';
     await loadState();
-  } catch(e) { msg('equipMsg', '失败: ' + e.message, false); }
+  };
+  $('confirm-description').textContent = desc;
+  const dlg = $('confirmation'); dlg.returnValue = ''; dlg.showModal();
+});
+$('confirmation').addEventListener('close', async () => {
+  if ($('confirmation').returnValue !== 'confirm' || !pendingAction) { pendingAction = null; return; }
+  const fn = pendingAction; pendingAction = null;
+  try { await fn(); } catch (e) { showNotice('发放失败：' + e.message, true); }
+});
+$('reward-type').addEventListener('change', () => { catalogType = Number($('reward-type').value); catalogPage = 1; renderCatalog(); });
+$('reward-id').addEventListener('change', updateQuantityLimit);
+$('catalog-search').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('catalog-button').click(); } });
+$('catalog-button').addEventListener('click', () => { catalogQuery = ($('catalog-search').value || '').trim(); catalogPage = 1; renderCatalog(); });
+$('catalog-prev').addEventListener('click', () => { catalogPage--; renderCatalog(); });
+$('catalog-next').addEventListener('click', () => { catalogPage++; renderCatalog(); });
+
+/* ---------- 修改名称：写 GM 专属映射表 GM/gm_names.csv ---------- */
+let renameTarget = null;
+function openRename(kind, key, original, current) {
+  renameTarget = { kind: kind, key: String(key), original: original || '', current: current || '' };
+  $('rename-target').textContent = (kind === 'item' ? 'item_mid ' : kind === 'type' ? '分类 ' : '卡池组 ') + key +
+    ' · 原名：' + (original || '—') + (current ? ' · 已修正为：' + current : '');
+  $('rename-input').value = current || '';
+  const d = $('rename-dialog');
+  d.returnValue = '';
+  d.showModal();
+  setTimeout(() => { $('rename-input').focus(); $('rename-input').select(); }, 60);
+}
+/* 提交前校验: 空 / 无中文 / 与已保存值相同 -> 拦下并提示, 不关窗、不发请求 */
+$('rename-dialog').querySelector('form').addEventListener('submit', (e) => {
+  if (!e.submitter || e.submitter.value !== 'save') return;
+  const v = ($('rename-input').value || '').trim();
+  const tgt = renameTarget || {};
+  if (!v) { e.preventDefault(); showNotice('名称不能为空，请填写后再保存。', true); return; }
+  if (!/[\u3400-\u9fff]/.test(v)) {
+    e.preventDefault();
+    showNotice('输入有误：名称需包含中文，请检查输入法后重试。', true);
+    return;
+  }
+  if (v === (tgt.current || '')) {
+    e.preventDefault();
+    showNotice('该名称已保存过，无需重复提交。', true);
+    return;
+  }
+  // 与原始名相同 = 等价于恢复原名(删除该条修正), 不写无用行
+  if (v === (tgt.original || '')) { e.submitter.value = 'clear'; }
+});
+$('rename-item').addEventListener('click', () => {
+  const opt = $('reward-id').selectedOptions[0];
+  const mid = opt ? parseInt(opt.value, 10) : 0;
+  if (!mid) { showNotice('请先在上方「选择物品」里选一个物品。', true); return; }
+  const type = parseInt(opt.getAttribute('data-item-type') || '0', 10);
+  openRename('item', mid, typeName(type), nameMap.items[String(mid)]);
+});
+$('rename-type').addEventListener('click', () => {
+  const id = parseInt($('reward-type').value, 10);
+  if (!id) { showNotice('请先在「物品分类」里选一个具体分类（「全部物品」不能改名）。', true); return; }
+  const orig = (TYPE_OPTIONS.find(o => o.id === id) || {}).name || ('类型 ' + id);
+  openRename('type', id, orig, nameMap.types[String(id)]);
+});
+let renameBusy = false;
+$('rename-dialog').addEventListener('close', async () => {
+  const rv = $('rename-dialog').returnValue;
+  const tgt = renameTarget;
+  renameTarget = null;
+  if (!tgt || (rv !== 'save' && rv !== 'clear')) return;
+  if (renameBusy) { showNotice('上一次修改还在提交中，请稍候。', true); return; }
+  const name = rv === 'clear' ? '' : ($('rename-input').value || '').trim();
+  renameBusy = true;
+  try {
+    const r = await post('name', { kind: tgt.kind, key: tgt.key, name: name, original: tgt.original },
+                         rv === 'clear' ? '恢复原名' : '修改名称', tgt.key);
+    nameMap = { items: r.items || {}, groups: r.groups || {}, types: r.types || {} };
+    renderRewardTypes();
+    renderCatalog();
+    renderStock();
+    if (tgt.kind === 'group') await loadGachaGroups();
+    if (r.unchanged) showNotice('该名称已保存过，无需重复提交。');
+    else showNotice(rv === 'clear' ? '已删除该条修正，恢复原名。' : '名称已保存到 GM/gm_names.csv。');
+  } catch (e) { showNotice('保存失败：' + e.message, true); }
+  finally { renameBusy = false; }
+});
+$('reward-method').addEventListener('change', () => { $('mail-extra').hidden = $('reward-method').value !== 'mail'; });
+$('save-wallet').addEventListener('click', async () => {
+  const data = {};
+  [['zack_money', 'wZack'], ['free_vstone', 'wFreeVstone'], ['guest_point', 'wGuest'], ['vip_point', 'wVip'], ['paid_vstone', 'wPaid'], ['vip_coin', 'wVipCoin']]
+    .forEach(([k, id]) => { data[k] = parseInt($(id).value, 10) || 0; });
+  try { await post('wallet', data, '保存钱包', '6 项货币'); showNotice('钱包已保存。'); await loadState(); }
+  catch (e) { showNotice('保存失败：' + e.message, true); }
+});
+$('save-owner').addEventListener('click', async () => {
+  const data = {
+    name: $('own-name').value.trim(),
+    island_name: $('own-island').value.trim(),
+    message: $('own-message').value.trim()
+  };
+  if (!data.name && !data.island_name) { showNotice('岛主名与岛名不能同时为空。', true); return; }
+  try {
+    await post('owner_profile', data, '保存岛主资料', data.name + ' / ' + data.island_name);
+    showNotice('岛主资料已保存，重进游戏后生效。');
+    await loadOwnerProfile();
+  } catch (e) { showNotice('保存失败：' + e.message, true); }
+});
+$('reset-owner').addEventListener('click', async () => {
+  try {
+    await post('owner_profile', { reset: true }, '恢复岛主资料', '抓包默认值');
+    showNotice('已恢复为抓包默认的岛主资料。');
+    await loadOwnerProfile();
+  } catch (e) { showNotice('恢复失败：' + e.message, true); }
+});
+$('venus-unlock').addEventListener('click', async () => {
+  try {
+    const r = await post('venus_board', { action: 'unlock_all' }, '解锁维纳斯图板', '全部女孩');
+    showNotice('已解锁 ' + fmt(r.new_panels || 0) + ' 块看板，奖励已写入背包。重进图板界面生效。');
+    await loadState();
+  } catch (e) { showNotice('解锁失败：' + e.message, true); }
+});
+$('venus-reset').addEventListener('click', async () => {
+  try {
+    await post('venus_board', { action: 'reset' }, '重置维纳斯图板', '全部女孩');
+    showNotice('已清空图板解锁进度（已发放的道具不回收）。');
+    await loadState();
+  } catch (e) { showNotice('重置失败：' + e.message, true); }
+});
+$('stock-filter').addEventListener('input', () => renderStock(true));
+$('stock-prev').addEventListener('click', () => { stockPage -= 1; renderStock(); });
+$('stock-next').addEventListener('click', () => { stockPage += 1; renderStock(); });
+$('stock-refresh').addEventListener('click', () => loadState());
+function clearMails() {
+  pendingAction = async () => {
+    await post('giftbox/clear', {}, '清除自定义邮件', '全部');
+    showNotice('自定义邮件已清除。');
+    await loadState();
+  };
+  $('reset-confirm-desc').textContent = '将清除所有由 GM 面板发送的自定义邮件，客户端邮箱里的对应邮件会一并消失。';
+  openReset();
+}
+$('clear-mails').addEventListener('click', clearMails);
+$('save-clear-mails').addEventListener('click', clearMails);
+$('save-restore-mails').addEventListener('click', async () => {
+  try {
+    await post('giftbox/restore', {}, '恢复内置邮件', '抓包邮件');
+    showNotice('已恢复抓包内置邮件。');
+    await loadState();
+  } catch (e) { showNotice('恢复失败：' + e.message, true); }
+});
+
+/* ---------- 看板娘 ---------- */
+function renderGirl() {
+  const mg = S.main_girl_mid;
+  $('girl-current').textContent = girlLabel(mg);
+  const eq = S.girl_equipment || {};
+  $('girl-count').textContent = Object.keys(eq).length + ' 个女孩';
+  const ids = Array.from(new Set(GIRL_IDS.concat(Object.keys(eq).map(Number), [mg]))).sort((a, b) => a - b);
+  $('girl-grid').innerHTML = ids.map(id =>
+    '<button type="button" class="girl-card' + (id === mg ? ' selected' : '') + '" data-gid="' + id + '" title="' + esc(girlSub(id)) + '"><div class="name">' + esc(girlName(id)) + '</div><div class="mid">' + esc(girlSub(id)) + '</div></button>'
+  ).join('');
+  $('girl-grid').querySelectorAll('.girl-card').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.gid);
+      try {
+        await post('girl', { main_girl_mid: id }, '切换看板娘', 'girl_mid ' + id);
+        showNotice('看板娘已切换为 ' + girlName(id) + '。');
+        await loadState();
+        renderEquip(id);
+      } catch (e) { showNotice('切换失败：' + e.message, true); }
+    });
+  });
+  renderEquip(mg);
 }
 function renderEquip(mid) {
   const eq = (S.girl_equipment || {})[String(mid)] || {};
-  document.getElementById('equipCard').style.display = 'block';
-  document.getElementById('equipGirlName').textContent = GIRL_NAMES[mid] || 'girl_' + mid;
-  document.getElementById('eqSwimsuit').value = eq.swimsuit_item_mid || '';
-  document.getElementById('eqArm').value = eq.accessory_arm_item_mid || '';
-  document.getElementById('eqHead').value = eq.accessory_head_item_mid || '';
+  $('equip-girl-name').textContent = girlLabel(mid);
+  $('eqSwimsuit').value = eq.swimsuit_item_mid ?? '';
+  $('eqArm').value = eq.accessory_arm_item_mid ?? '';
+  $('eqHead').value = eq.accessory_head_item_mid ?? '';
 }
-async function saveEquip() {
+$('save-equip').addEventListener('click', async () => {
   const mid = S.main_girl_mid;
-  const data = {};
-  const sw = document.getElementById('eqSwimsuit').value;
-  const arm = document.getElementById('eqArm').value;
-  const head = document.getElementById('eqHead').value;
-  if (sw) data.swimsuit_item_mid = parseInt(sw);
-  if (arm) data.accessory_arm_item_mid = parseInt(arm);
-  if (head) data.accessory_head_item_mid = parseInt(head);
+  const eq = {};
+  const sw = $('eqSwimsuit').value.trim(), arm = $('eqArm').value.trim(), head = $('eqHead').value.trim();
+  eq.swimsuit_item_mid = sw ? parseInt(sw, 10) : null;
+  eq.accessory_arm_item_mid = arm ? parseInt(arm, 10) : null;
+  eq.accessory_head_item_mid = head ? parseInt(head, 10) : null;
   try {
-    await api('girl', {method:'POST', body: JSON.stringify({girl_mid: mid, equipment: data})});
-    msg('equipMsg', '装备已保存 (girl_' + mid + ')');
+    await post('girl', { girl_mid: mid, equipment: eq }, '保存装备', 'girl_mid ' + mid);
+    showNotice('装备已保存。');
     await loadState();
-  } catch(e) { msg('equipMsg', '失败: ' + e.message, false); }
-}
+  } catch (e) { showNotice('保存失败：' + e.message, true); }
+});
 
-// --- 钱包 ---
-function renderWallet() {
-  const w = S.wallet || {};
-  document.getElementById('wZack').value = w.zack_money ?? 0;
-  document.getElementById('wFreeVstone').value = w.free_vstone ?? 0;
-  document.getElementById('wGuest').value = w.guest_point ?? 0;
-  document.getElementById('wVip').value = w.vip_point ?? 0;
-  document.getElementById('wPaid').value = w.paid_vstone ?? 0;
-  document.getElementById('wVipCoin').value = w.vip_coin ?? 0;
-}
-async function saveWallet() {
-  const data = {
-    zack_money: parseInt(document.getElementById('wZack').value) || 0,
-    free_vstone: parseInt(document.getElementById('wFreeVstone').value) || 0,
-    guest_point: parseInt(document.getElementById('wGuest').value) || 0,
-    vip_point: parseInt(document.getElementById('wVip').value) || 0,
-    paid_vstone: parseInt(document.getElementById('wPaid').value) || 0,
-    vip_coin: parseInt(document.getElementById('wVipCoin').value) || 0,
-  };
-  try {
-    await api('wallet', {method:'POST', body: JSON.stringify(data)});
-    msg('walletMsg', '钱包已保存');
-    await loadState();
-  } catch(e) { msg('walletMsg', '失败: ' + e.message, false); }
-}
-
-// --- 物品 ---
-function renderItems() {
-  const ic = S.item_counts || {};
-  const tbody = document.querySelector('#itemTable tbody');
-  tbody.innerHTML = '';
-  const entries = Object.entries(ic).filter(([k,v]) => v > 0).sort((a,b)=>b[1]-a[1]);
-  entries.slice(0, 200).forEach(([mid, count]) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${mid}</td><td>${count}</td><td>-</td>`;
-    tbody.appendChild(tr);
-  });
-  if (entries.length > 200) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="3" style="text-align:center;color:#666">... 还有 ${entries.length-200} 个物品</td>`;
-    tbody.appendChild(tr);
-  }
-}
-async function addItem(action) {
-  const mid = parseInt(document.getElementById('addItemMid').value);
-  const count = parseInt(document.getElementById('addItemCount').value) || 1;
-  if (!mid) { msg('itemMsg', '请输入物品ID', false); return; }
-  try {
-    await api('items', {method:'POST', body: JSON.stringify({item_mid: mid, count, action})});
-    const act = action==='add'?'增加':action==='set'?'设置':'删除';
-    msg('itemMsg', `${act} ${mid} x${count} 成功`);
-    await loadState();
-  } catch(e) { msg('itemMsg', '失败: ' + e.message, false); }
-}
-
-// --- 维纳斯货币发放 ---
-async function sendVenusCoin() {
-  const mid = parseInt(document.getElementById('venusCoinType').value);
-  const count = parseInt(document.getElementById('venusCoinCount').value) || 999;
-  if (!mid) { msg('venusCoinMsg', '请选择货币类型', false); return; }
-  try {
-    await api('venus_coin', {method:'POST', body: JSON.stringify({item_mid: mid, count})});
-    msg('venusCoinMsg', `已发放 ${mid} x${count} 成功`);
-    await loadState();
-  } catch(e) { msg('venusCoinMsg', '失败: ' + e.message, false); }
-}
-
-// --- 邮箱 ---
-function renderGiftbox() {
-  const claimed = (S.giftbox_claimed || []).length;
-  const total = S.giftbox_total || 25;
-  const custom = S.giftbox_custom || 0;
-  document.getElementById('gbTotal').textContent = total;
-  document.getElementById('gbClaimed').textContent = claimed;
-  document.getElementById('gbUnclaimed').textContent = total - claimed;
-  document.getElementById('gbCustom').textContent = custom;
-}
-async function sendMail() {
-  const mid = parseInt(document.getElementById('gmMailItem').value);
-  const count = parseInt(document.getElementById('gmMailCount').value) || 1;
-  const mtype = parseInt(document.getElementById('gmMailType').value) || 10;
-  const message = document.getElementById('gmMailMsg').value || 'GM发放';
-  if (!mid) { msg('mailMsg', '请输入物品ID', false); return; }
-  try {
-    const r = await api('giftbox/send', {method:'POST', body: JSON.stringify({
-      item_mid: mid, count, message_type: mtype, message
-    })});
-    msg('mailMsg', `邮件已发送: item_mid=${mid} x${count} (共 ${r.custom_total} 封自定义邮件)`);
-    document.getElementById('gmMailItem').value = '';
-    await loadState();
-  } catch(e) { msg('mailMsg', '发送失败: ' + e.message, false); }
-}
-async function clearCustomMails() {
-  if (!confirm('确定清除所有自定义邮件？')) return;
-  try {
-    await api('giftbox/clear', {method:'POST', body: JSON.stringify({})});
-    msg('mailMsg', '自定义邮件已清除');
-    await loadState();
-  } catch(e) { msg('mailMsg', '清除失败: ' + e.message, false); }
-}
-async function resetModule(mod) {
-  if (!confirm('确定重置 ' + mod + '？')) return;
-  try {
-    await api('reset', {method:'POST', body: JSON.stringify({module: mod})});
-    const msgId = mod==='giftbox'?'giftboxMsg':mod==='login_bonus'?'bonusMsg':'infoMsg';
-    msg(msgId, mod + ' 已重置');
-    await loadState();
-  } catch(e) { msg('giftboxMsg', '失败: ' + e.message, false); }
-}
-
-// --- 签到 ---
-function renderBonus() {
-  const mc = S.monthly_claimed || {};
-  document.getElementById('bonusMonthly').textContent = mc.monthly || '未领取';
-}
-
-// --- 日志 ---
-async function loadLog() {
-  try {
-    const r = await api('log');
-    document.getElementById('logBox').textContent = r.log || '(空)';
-  } catch(e) { document.getElementById('logBox').textContent = '加载失败: ' + e.message; }
-}
-
-// --- 扭蛋 ---
-let gachaConfig = null;      // 全局配置缓存
-let currentGachaMid = null;  // 当前查看的卡池
-let currentGachaPool = {};   // 当前卡池奖池(各稀有度物品数, saveGachaPool时检查爆率有效性)
-
+/* ---------- 扭蛋 ---------- */
 async function loadGachaConfig() {
-  try {
-    gachaConfig = await api('gacha/config');
-    renderGachaConfig();
-  } catch(e) { msg('gachaConfigMsg', '加载失败: ' + e.message, false); }
+  try { gachaConfig = await api('gacha/config'); renderGachaConfig(); } catch (e) { showNotice('扭蛋全局配置加载失败：' + e.message, true); }
 }
-
 function renderGachaConfig() {
   if (!gachaConfig) return;
-  const d = gachaConfig.defaults || {};
-  document.getElementById('gcSSR').value = (d.rarity_weights||{}).SSR ?? 5;
-  document.getElementById('gcSR').value = (d.rarity_weights||{}).SR ?? 15;
-  document.getElementById('gcR').value = (d.rarity_weights||{}).R ?? 80;
-  document.getElementById('gcHardPity').value = d.hard_pity ?? 0;
-  document.getElementById('gcSoftStart').value = d.soft_pity_start ?? 0;
-  document.getElementById('gcSoftIncr').value = d.soft_pity_increment ?? 6;
-  document.getElementById('gcStepup').checked = d.enable_stepup ?? true;
-  document.getElementById('gcSSRLock').checked = d.ssr_auto_lock ?? false;
+  const d = gachaConfig.defaults || {}, rw = d.rarity_weights || {};
+  $('gcSSR').value = rw.SSR ?? 5; $('gcSR').value = rw.SR ?? 15; $('gcR').value = rw.R ?? 80;
+  $('gcHardPity').value = d.hard_pity ?? 0; $('gcSoftStart').value = d.soft_pity_start ?? 0; $('gcSoftIncr').value = d.soft_pity_increment ?? 6;
+  $('gcStepup').checked = d.enable_stepup ?? true; $('gcSSRLock').checked = d.ssr_auto_lock ?? false;
 }
-
-async function saveGachaConfig() {
-  const ssrV = parseInt(document.getElementById('gcSSR').value) || 0;
-  const srV = parseInt(document.getElementById('gcSR').value) || 0;
-  const rV = parseInt(document.getElementById('gcR').value) || 0;
-  if (ssrV + srV + rV !== 100) { msg('gachaConfigMsg', '⚠ SSR+SR+R 总和必须=100，当前=' + (ssrV+srV+rV), false); return; }
+function readIntField(id, fallback, min) {
+  const raw = ($(id).value || '').trim();
+  if (raw === '') return fallback;
+  if (!/^-?\d+$/.test(raw)) return NaN;
+  const v = Number(raw);
+  return v < min ? NaN : v;
+}
+$('save-gacha-config').addEventListener('click', async () => {
+  const s = readIntField('gcSSR', 0, 0), r = readIntField('gcSR', 0, 0), n = readIntField('gcR', 0, 0);
+  const hp = readIntField('gcHardPity', 0, 0), sp = readIntField('gcSoftStart', 0, 0), si = readIntField('gcSoftIncr', 6, 0);
+  if ([s, r, n, hp, sp, si].some(v => !Number.isFinite(v))) { showNotice('权重与保底参数必须是非负整数，请检查输入框。', true); return; }
+  if (s + r + n !== 100) { showNotice('SSR + SR + R 总和必须等于 100，当前为 ' + (s + r + n) + '。', true); return; }
   const data = {
-    rarity_weights: { SSR: ssrV, SR: srV, R: rV },
-    hard_pity: parseInt(document.getElementById('gcHardPity').value) || 0,
-    soft_pity_start: parseInt(document.getElementById('gcSoftStart').value) || 0,
-    soft_pity_increment: parseInt(document.getElementById('gcSoftIncr').value) || 6,
-    enable_stepup: document.getElementById('gcStepup').checked,
-    ssr_auto_lock: document.getElementById('gcSSRLock').checked,
+    rarity_weights: { SSR: s, SR: r, R: n },
+    hard_pity: hp,
+    soft_pity_start: sp,
+    soft_pity_increment: si,
+    enable_stepup: $('gcStepup').checked,
+    ssr_auto_lock: $('gcSSRLock').checked
   };
+  try { await post('gacha/config', data, '保存扭蛋全局配置', '全部卡池'); showNotice('全局爆率配置已保存。'); await loadGachaConfig(); }
+  catch (e) { showNotice('保存失败：' + e.message, true); }
+});
+async function searchGachaPools(q) {
   try {
-    await api('gacha/config', {method:'POST', body: JSON.stringify(data)});
-    msg('gachaConfigMsg', '全局配置已保存');
-    await loadGachaConfig();
-  } catch(e) { msg('gachaConfigMsg', '保存失败: ' + e.message, false); }
+    const r = await api('gacha/search?q=' + encodeURIComponent(q || ''));
+    const pools = r.pools || [];
+    $('gacha-search-body').innerHTML = pools.length ? pools.map(p =>
+      '<tr><td class="num">' + p.gacha_mid + '</td><td class="num">' + p.max_step + '</td><td>' +
+      (p.has_override ? '<span class="badge">是</span>' : '<span class="badge off">否</span>') + '</td>' +
+      '<td><button class="button sm gacha-view-btn" data-mid="' + p.gacha_mid + '">' + t('common.view') + '</button></td></tr>'
+    ).join('') : '<tr><td colspan="4" class="muted" style="text-align:center">无匹配卡池</td></tr>';
+    $('gacha-search-body').querySelectorAll('.gacha-view-btn').forEach(b => b.addEventListener('click', () => loadGachaPool(Number(b.dataset.mid))));
+  } catch (e) { showNotice('搜索失败：' + e.message, true); }
 }
-
-async function searchGachaPools() {
-  const q = document.getElementById('gachaSearchInput').value.trim();
-  if (!q) { msg('gachaSearchMsg', '请输入 gacha_mid', false); return; }
-  try {
-    const r = await api('gacha/search?q=' + encodeURIComponent(q));
-    const tbody = document.querySelector('#gachaSearchTable tbody');
-    tbody.innerHTML = '';
-    if (!r.pools || r.pools.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#666">无匹配卡池</td></tr>';
-      return;
-    }
-    r.pools.forEach(p => {
-      const tr = document.createElement('tr');
-      const btn = `<button class="btn btn-sm" onclick="loadGachaPool(${p.gacha_mid})">查看</button>`;
-      tr.innerHTML = `<td>${p.gacha_mid}</td><td>${p.max_step}</td><td>${p.has_override?'<span class="badge">是</span>':'<span class="badge badge-off">否</span>'}</td><td>${btn}</td>`;
-      tbody.appendChild(tr);
-    });
-  } catch(e) { msg('gachaSearchMsg', '搜索失败: ' + e.message, false); }
-}
-
+$('gacha-search-btn').addEventListener('click', () => searchGachaPools(($('gacha-search-input').value || '').trim()));
+$('gacha-search-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('gacha-search-btn').click(); });
+$('gacha-list-all').addEventListener('click', () => searchGachaPools(''));
 async function loadGachaPool(gm) {
   currentGachaMid = gm;
   try {
     const r = await api('gacha/pool?gacha_mid=' + gm);
-    document.getElementById('gachaPoolCard').style.display = 'block';
-    document.getElementById('gachaWeightCard').style.display = 'block';
-    document.getElementById('gachaPoolTitle').textContent = '卡池 ' + gm + ' (max_step=' + r.max_step + ')';
-    // 保底状态
+    $('gacha-pool-card').hidden = false;
+    $('gacha-pool-mid').textContent = gm + ' (max_step=' + r.max_step + ')' +
+      (r.group_id ? ' · 属于卡池组 ' + r.group_id + '，按组设置爆率才会覆盖所有抽法' : '');
     const pity = r.pity || {};
-    document.getElementById('gpCurStep').textContent = pity.current_step ?? 1;
-    document.getElementById('gpTotalDraws').textContent = pity.total_draws ?? 0;
-    document.getElementById('gpSinceSSR').textContent = pity.draws_since_ssr ?? 0;
-    // 卡池配置覆盖
-    const cfg = r.config || {};
-    const rw = cfg.rarity_weights || {};
-    document.getElementById('gpSSR').value = rw.SSR ?? '';
-    document.getElementById('gpSR').value = rw.SR ?? '';
-    document.getElementById('gpR').value = rw.R ?? '';
-    document.getElementById('gpHardPity').value = cfg.hard_pity ?? '';
-    // 物品权重表
+    $('gpCurStep').textContent = pity.current_step ?? 1;
+    $('gpTotalDraws').textContent = fmt(pity.total_draws ?? 0);
+    $('gpSinceSSR').textContent = fmt(pity.draws_since_ssr ?? 0);
+    const cfg = r.config || {}, rw = cfg.rarity_weights || {};
+    $('gpSSR').value = rw.SSR ?? ''; $('gpSR').value = rw.SR ?? ''; $('gpR').value = rw.R ?? '';
+    $('gpHardPity').value = cfg.hard_pity ?? '';
     currentGachaPool = r.pool || {};
-    renderGachaWeights(r.pool || {});
-  } catch(e) { msg('gachaPoolMsg', '加载失败: ' + e.message, false); }
+    renderGachaWeights(currentGachaPool);
+    $('gacha-pool-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return r;
+  } catch (e) { showNotice('卡池加载失败：' + e.message, true); return null; }
 }
-
 function renderGachaWeights(pool) {
-  ['SSR','SR','R'].forEach(rarity => {
-    const tableId = rarity === 'SSR' ? 'gachaSSRTable' : rarity === 'SR' ? 'gachaSRTable' : 'gachaRTable';
-    const tbody = document.querySelector('#' + tableId + ' tbody');
-    tbody.innerHTML = '';
+  $('gacha-weights').innerHTML = ['SSR', 'SR', 'R'].map(rarity => {
     const items = pool[rarity] || [];
-    if (items.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#666">(无)</td></tr>';
+    return '<h3 style="margin-top:16px">' + rarity + ' (' + items.length + ')</h3>' +
+      (items.length ? '<div class="scroll-window sm"><table><thead><tr><th>item_mid</th><th>默认权重</th><th>覆盖权重</th></tr></thead><tbody>' +
+        items.map(it => '<tr><td class="num">' + it.item_mid + '</td><td class="num">' + it.default_weight + '</td>' +
+          '<td><input type="number" min="1" step="1" class="gacha-w-override" data-item="' + it.item_mid + '" value="' +
+          esc(it.override_weight != null ? it.override_weight : '') + '" placeholder="默认" style="max-width:120px;min-height:32px"></td></tr>').join('') +
+        '</tbody></table></div>' : '<p class="muted" style="font-size:13px">（无）</p>');
+  }).join('');
+}
+function parseNonNegInt(raw, label, min) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (s === '') return null;
+  if (!/^\d+$/.test(s) || Number(s) < min) throw new Error(label + ' 必须是 ≥' + min + ' 的整数');
+  return Number(s);
+}
+$('save-gacha-pool').addEventListener('click', async () => {
+  if (!currentGachaMid) return;
+  const data = { gacha_mid: currentGachaMid };
+  let sn, rn, nn, hp;
+  try {
+    sn = parseNonNegInt($('gpSSR').value, 'SSR 权重', 0);
+    rn = parseNonNegInt($('gpSR').value, 'SR 权重', 0);
+    nn = parseNonNegInt($('gpR').value, 'R 权重', 0);
+    hp = parseNonNegInt($('gpHardPity').value, '硬保底覆盖', 0);
+  } catch (e) { showNotice(e.message, true); return; }
+  if (sn !== null || rn !== null || nn !== null) {
+    if (sn === null || rn === null || nn === null) { showNotice('设置稀有度权重时 SSR / SR / R 必须都填。', true); return; }
+    if (sn + rn + nn !== 100) { showNotice('SSR + SR + R 总和必须等于 100，当前为 ' + (sn + rn + nn) + '。', true); return; }
+    data.rarity_weights = { SSR: sn, SR: rn, R: nn };
+  }
+  if (hp !== null) data.hard_pity = hp;
+  const weights = {};
+  try {
+    document.querySelectorAll('.gacha-w-override').forEach(inp => {
+      const w = parseNonNegInt(inp.value, 'item_mid ' + inp.dataset.item + ' 的覆盖权重', 1);
+      if (w !== null) weights[inp.dataset.item] = w;
+    });
+  } catch (e) { showNotice(e.message, true); return; }
+  if (Object.keys(weights).length) data.item_weights = weights;
+  /* 表单即真相：先清掉该卡池在 STATE 里的旧覆盖，再写回当前有值的项。
+     否则清空输入框只会被前端跳过，服务端仍保留旧的 rarity_weights / hard_pity / item_weights。 */
+  try {
+    await api('gacha/pool', { method: 'POST', body: JSON.stringify({ gacha_mid: currentGachaMid, action: 'clear' }) });
+  } catch (e) { showNotice('清除旧覆盖失败，已中止保存：' + e.message, true); return; }
+  if (Object.keys(data).length > 1) {
+    try {
+      await post('gacha/pool', data, '保存卡池配置', 'gacha_mid ' + currentGachaMid);
+    } catch (e) {
+      showNotice('旧覆盖已清空，但新配置写入失败：' + e.message + '。请重新填写后再保存一次。', true);
+      await loadGachaPool(currentGachaMid);
       return;
     }
-    items.forEach(item => {
-      const tr = document.createElement('tr');
-      const ow = item.override_weight != null ? item.override_weight : '';
-      tr.innerHTML = `<td>${item.item_mid}</td><td>${item.default_weight}</td><td><input type="number" class="gacha-w-override" data-item="${item.item_mid}" value="${ow}" placeholder="默认" style="width:80px;background:#1a1a2e;border:1px solid #333;color:#e0e0e0;padding:4px;border-radius:4px"></td>`;
-      tbody.appendChild(tr);
-    });
-  });
-}
-
-async function saveGachaPool() {
-  if (!currentGachaMid) return;
-  const data = {gacha_mid: currentGachaMid};
-  let _warnMsg = '';  // 稀有度警告(无物品的稀有度爆率无效)
-  const ssr = document.getElementById('gpSSR').value.trim();
-  const sr = document.getElementById('gpSR').value.trim();
-  const r = document.getElementById('gpR').value.trim();
-  const hp = document.getElementById('gpHardPity').value.trim();
-  if (ssr || sr || r) {
-    if (!ssr || !sr || !r) { msg('gachaPoolMsg', '⚠ 设置爆率时 SSR/SR/R 必须都填', false); return; }
-    const ssrN = parseInt(ssr), srN = parseInt(sr), rN = parseInt(r);
-    if (ssrN + srN + rN !== 100) { msg('gachaPoolMsg', '⚠ SSR+SR+R 总和必须=100，当前=' + (ssrN+srN+rN), false); return; }
-    data.rarity_weights = { SSR: ssrN, SR: srN, R: rN };
-    // 检查该卡池各稀有度物品数, 提示无效爆率(无物品的稀有度权重会被丢弃, 实际分布偏离设置)
-    const _pool = currentGachaPool || {};
-    const _warn = [];
-    if (ssrN > 0 && (!_pool.SSR || _pool.SSR.length === 0)) _warn.push('SSR');
-    if (srN > 0 && (!_pool.SR || _pool.SR.length === 0)) _warn.push('SR');
-    if (rN > 0 && (!_pool.R || _pool.R.length === 0)) _warn.push('R');
-    if (_warn.length > 0) {
-      _warnMsg = '⚠ 该卡池无 ' + _warn.join('/') + ' 物品，对应爆率无效（会被丢弃）';
-    }
+  } else {
+    addHistory('保存卡池配置（清空覆盖）', 'gacha_mid ' + currentGachaMid, true);
   }
-  if (hp) data.hard_pity = parseInt(hp);
-  // 收集物品权重覆盖
-  const itemWeights = {};
-  document.querySelectorAll('.gacha-w-override').forEach(inp => {
-    const v = inp.value.trim();
-    if (v !== '') itemWeights[inp.dataset.item] = parseInt(v);
+  const verify = await loadGachaPool(currentGachaMid);
+  if (!verify) return;
+  const vc = verify.config || {};
+  const bad = [];
+  if (JSON.stringify(vc.rarity_weights || null) !== JSON.stringify(data.rarity_weights || null)) bad.push('稀有度权重');
+  if ((vc.hard_pity === undefined ? null : vc.hard_pity) !== (data.hard_pity === undefined ? null : data.hard_pity)) bad.push('硬保底');
+  if (JSON.stringify(vc.item_weights || null) !== JSON.stringify(data.item_weights || null)) bad.push('物品权重');
+  if (bad.length) {
+    showNotice('保存后回读不一致：' + bad.join('、') + '。可能配置文件里另有默认值，请检查 gacha_config.json。', true);
+    return;
+  }
+  showNotice('卡池配置已保存；留空的项已恢复全局 / 默认值。');
+});
+$('reset-gacha-pity').addEventListener('click', async () => {
+  if (!currentGachaMid) return;
+  try { await post('gacha/pity/reset', { gacha_mid: currentGachaMid }, '重置保底', 'gacha_mid ' + currentGachaMid); showNotice('保底已重置。'); await loadGachaPool(currentGachaMid); }
+  catch (e) { showNotice('重置失败：' + e.message, true); }
+});
+$('clear-gacha-pool').addEventListener('click', async () => {
+  if (!currentGachaMid) return;
+  try { await post('gacha/pool', { gacha_mid: currentGachaMid, action: 'clear' }, '清除卡池覆盖', 'gacha_mid ' + currentGachaMid); showNotice('覆盖配置已清除。'); await loadGachaPool(currentGachaMid); }
+  catch (e) { showNotice('清除失败：' + e.message, true); }
+});
+/* ---------- 卡池组：客户端按 banner 合并显示，组内 mid 是同一卡池的不同抽法 ---------- */
+let gachaGroups = [], currentGroupId = null, gachaGroupTab = 'all';
+
+async function loadGachaGroups() {
+  try {
+    const r = await api('gacha/groups');
+    gachaGroups = r.groups || [];
+    renderGachaGroups();
+  } catch (e) {
+    $('gacha-group-count').textContent = '服务端需重启';
+    $('gacha-group-body').innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center">' +
+      '卡池分组接口不可用，请重启本地服务器后刷新本页。原有的按 mid 管理功能不受影响。</td></tr>';
+  }
+}
+function groupVisibleState(g) {
+  const states = (g.mids || []).map(m => {
+    const it = gachaVisibleData.find(x => x.gacha_mid === Number(m));
+    return it ? it.visible : (g.visible !== false);
   });
-  if (Object.keys(itemWeights).length > 0) data.item_weights = itemWeights;
-  try {
-    await api('gacha/pool', {method:'POST', body: JSON.stringify(data)});
-    msg('gachaPoolMsg', '卡池配置已保存' + (_warnMsg ? '（' + _warnMsg + '）' : ''), !_warnMsg);
-    await loadGachaPool(currentGachaMid);
-  } catch(e) { msg('gachaPoolMsg', '保存失败: ' + e.message, false); }
+  const on = states.filter(Boolean).length;
+  return { all: states.length > 0 && on === states.length, some: on > 0 };
 }
-
-async function resetGachaPity() {
-  if (!currentGachaMid) return;
-  if (!confirm('确定重置卡池 ' + currentGachaMid + ' 的保底计数？')) return;
-  try {
-    await api('gacha/pity/reset', {method:'POST', body: JSON.stringify({gacha_mid: currentGachaMid})});
-    msg('gachaPoolMsg', '保底已重置');
-    await loadGachaPool(currentGachaMid);
-  } catch(e) { msg('gachaPoolMsg', '重置失败: ' + e.message, false); }
+function renderGachaGroups() {
+  const body = $('gacha-group-body');
+  const shown = gachaGroups.filter(g => g.has_banner && (gachaGroupTab === 'all' || (g.tabs || []).indexOf(gachaGroupTab) >= 0));
+  const entries = shown.reduce((n, g) => n + (g.tabs || []).length, 0);
+  $('gacha-group-count').textContent = '共 ' + shown.length + ' 组 · 游戏内 ' + entries + ' 个入口 · 另有 ' +
+    gachaGroups.filter(g => !g.has_banner).length + ' 个无 banner 卡池';
+  body.innerHTML = shown.length ? shown.map(g => {
+    const st = groupVisibleState(g);
+    const pools = g.pools || {};
+    const pureR = (g.mids || []).filter(m => {
+      const c = (pools[String(m)] || {}).rarities || {};
+      return !(c.SSR || c.SR);
+    }).length;
+    const tabs = (g.tabs || []).map(x => t(x === 'limited' ? 'gacha.tabLimited' : 'gacha.tabNormal')).join(' / ');
+    const cfgTag = Object.keys(g.config || {}).length ? '<span class="badge">已配置</span>' : '<span class="badge off">全局</span>';
+    return '<tr><td><label class="vis-toggle"><input type="checkbox" class="gacha-group-cb" data-gid="' + esc(g.group_id) + '"' +
+      (st.all ? ' checked' : '') + (st.some && !st.all ? ' data-indeterminate="1"' : '') + '></label></td>' +
+      '<td><strong>' + esc(g.label || g.group_id) + '</strong><div class="muted" style="font-size:11px">' + esc(g.group_id) + ' ' + cfgTag + '</div></td>' +
+      '<td>' + esc(tabs) + '</td>' +
+      '<td class="muted" style="font-size:12px">' + esc((g.mids || []).join(', ')) + '</td>' +
+      '<td>' + (pureR ? '<span class="badge off">' + pureR + ' 个抽法纯 R</span>' : '<span class="badge">含 SSR</span>') + '</td>' +
+      '<td class="col-actions"><div class="row-actions">' +
+      '<button class="button sm gacha-group-rename" data-gid="' + esc(g.group_id) + '">' + t('name.edit') + '</button>' +
+      '<button class="button sm gacha-group-cfg" data-gid="' + esc(g.group_id) + '">' + t('gacha.groupConfigTitle') + '</button>' +
+      '</div></td></tr>';
+  }).join('') : '<tr><td colspan="6" class="muted" style="text-align:center">—</td></tr>';
+  body.querySelectorAll('.gacha-group-cb').forEach(cb => {
+    if (cb.dataset.indeterminate) cb.indeterminate = true;
+    cb.addEventListener('change', () => setGroupVisible(cb.dataset.gid, cb.checked));
+  });
+  body.querySelectorAll('.gacha-group-cfg').forEach(b => b.addEventListener('click', () => openGroupConfig(b.dataset.gid)));
+  body.querySelectorAll('.gacha-group-rename').forEach(b => b.addEventListener('click', () => {
+    const g = gachaGroups.find(x => x.group_id === b.dataset.gid);
+    if (!g) return;
+    openRename('group', g.group_id, g.label_default || g.label || '', nameMap.groups[g.group_id]);
+  }));
 }
-
-async function clearGachaPool() {
-  if (!currentGachaMid) return;
-  if (!confirm('确定清除卡池 ' + currentGachaMid + ' 的所有覆盖配置？')) return;
-  try {
-    await api('gacha/pool', {method:'POST', body: JSON.stringify({gacha_mid: currentGachaMid, action: 'clear'})});
-    msg('gachaPoolMsg', '覆盖已清除');
-    await loadGachaPool(currentGachaMid);
-  } catch(e) { msg('gachaPoolMsg', '清除失败: ' + e.message, false); }
+function setGroupVisible(gid, val) {
+  const g = gachaGroups.find(x => x.group_id === gid);
+  if (!g) return;
+  const ids = new Set((g.mids || []).map(Number));
+  gachaVisibleData.forEach(p => { if (ids.has(p.gacha_mid)) p.visible = val; });
+  gachaVisibleDirty = true;
+  renderGachaVisible();
 }
+function setGachaGroupTab(tab) { gachaGroupTab = tab; renderGachaGroups(); }
+function setAllVisibleGroups(val) {
+  const ids = new Set();
+  gachaGroups.filter(g => g.has_banner && (gachaGroupTab === 'all' || (g.tabs || []).indexOf(gachaGroupTab) >= 0))
+    .forEach(g => (g.mids || []).forEach(m => ids.add(Number(m))));
+  gachaVisibleData.forEach(p => { if (ids.has(p.gacha_mid)) p.visible = val; });
+  gachaVisibleDirty = true;
+  renderGachaVisible();
+}
+function openGroupConfig(gid) {
+  const g = gachaGroups.find(x => x.group_id === gid);
+  if (!g) return;
+  currentGroupId = gid;
+  $('gacha-group-config-card').hidden = false;
+  $('gacha-group-config-title').textContent = (g.label || gid) + ' (' + gid + ')';
+  $('gacha-group-config-mids').textContent = 'gacha_mid: ' + (g.mids || []).join(', ') + ' · 分类: ' +
+    (g.tabs || []).map(x => t(x === 'limited' ? 'gacha.tabLimited' : 'gacha.tabNormal')).join(' / ');
+  const pools = g.pools || {};
+  $('gacha-group-pools').innerHTML = '<table><thead><tr><th>gacha_mid</th><th>reward_table</th><th>SSR</th><th>SR</th><th>R</th><th>爆率</th></tr></thead><tbody>' +
+    (g.mids || []).map(m => {
+      const p = pools[String(m)] || {}, c = p.rarities || {};
+      const pure = !(c.SSR || c.SR);
+      return '<tr><td class="num">' + m + '</td><td class="num">' + esc(p.rt || '—') + '</td>' +
+        '<td class="num">' + (c.SSR || 0) + '</td><td class="num">' + (c.SR || 0) + '</td><td class="num">' + (c.R || 0) + '</td>' +
+        '<td>' + (pure ? '<span class="badge off">原本纯 R，需补齐</span>' : '<span class="badge">正常</span>') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  const cfg = g.config || {}, rw = cfg.rarity_weights || {};
+  $('ggSSR').value = rw.SSR ?? ''; $('ggSR').value = rw.SR ?? ''; $('ggR').value = rw.R ?? '';
+  $('ggHardPity').value = cfg.hard_pity ?? '';
+  $('ggFill').checked = cfg.use_group_fill !== false;
+  $('gacha-group-config-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+$('save-gacha-group').addEventListener('click', async () => {
+  if (!currentGroupId) return;
+  let sn, rn, nn, hp;
+  try {
+    sn = parseNonNegInt($('ggSSR').value, 'SSR 权重', 0);
+    rn = parseNonNegInt($('ggSR').value, 'SR 权重', 0);
+    nn = parseNonNegInt($('ggR').value, 'R 权重', 0);
+    hp = parseNonNegInt($('ggHardPity').value, '硬保底覆盖', 0);
+  } catch (e) { showNotice(e.message, true); return; }
+  const config = { use_group_fill: $('ggFill').checked };
+  if (sn !== null || rn !== null || nn !== null) {
+    if (sn === null || rn === null || nn === null) { showNotice('设置稀有度权重时 SSR / SR / R 必须都填。', true); return; }
+    if (sn + rn + nn !== 100) { showNotice('SSR + SR + R 总和必须等于 100，当前为 ' + (sn + rn + nn) + '。', true); return; }
+    config.rarity_weights = { SSR: sn, SR: rn, R: nn };
+  }
+  if (hp !== null) config.hard_pity = hp;
+  try {
+    const r = await post('gacha/group', { group_id: currentGroupId, config }, '保存卡池组配置', currentGroupId);
+    const got = r.config || {};
+    const bad = [];
+    if (JSON.stringify(got.rarity_weights || null) !== JSON.stringify(config.rarity_weights || null)) bad.push('稀有度权重');
+    if ((got.hard_pity === undefined ? null : got.hard_pity) !== (config.hard_pity === undefined ? null : config.hard_pity)) bad.push('硬保底');
+    if (bad.length) { showNotice('保存后回读不一致：' + bad.join('、'), true); return; }
+    await loadGachaGroups();
+    showNotice('组配置已保存，组内 ' + (r.mids || []).length + ' 个抽法共用这份爆率与保底。');
+  } catch (e) { showNotice('保存失败：' + e.message, true); }
+});
+$('clear-gacha-group').addEventListener('click', async () => {
+  if (!currentGroupId) return;
+  try {
+    await post('gacha/group', { group_id: currentGroupId, action: 'clear' }, '清除卡池组配置', currentGroupId);
+    await loadGachaGroups();
+    openGroupConfig(currentGroupId);
+    showNotice('组配置已清除，恢复使用全局设置。');
+  } catch (e) { showNotice('清除失败：' + e.message, true); }
+});
+$('reset-gacha-group-pity').addEventListener('click', async () => {
+  if (!currentGroupId) return;
+  try { await post('gacha/pity/reset', { group_id: currentGroupId }, '重置卡池组保底', currentGroupId); showNotice('组保底已重置。'); }
+  catch (e) { showNotice('重置失败：' + e.message, true); }
+});
+$('gacha-group-tab-all').addEventListener('click', () => setGachaGroupTab('all'));
+$('gacha-group-tab-limited').addEventListener('click', () => setGachaGroupTab('limited'));
+$('gacha-group-tab-normal').addEventListener('click', () => setGachaGroupTab('normal'));
+$('gacha-group-all').addEventListener('click', () => setAllVisibleGroups(true));
+$('gacha-group-none').addEventListener('click', () => setAllVisibleGroups(false));
 
-// ============ 卡池开关 (GM控制游戏内显示哪些卡池) ============
-let gachaVisibleData = [];
-async function loadGachaVisible() {
+/* 可见卡池：gachaVisibleData 是唯一状态源，勾选写入数据而不是只留在 DOM，
+   这样过滤 / 翻页都不会丢勾选；保存时提交全量 mid，不再只提交当前渲染的行。 */
+async function loadGachaVisible(force) {
+  if (gachaVisibleDirty && !force) return;  // 有未保存改动时，刷新状态等操作不覆盖列表
   try {
     const r = await api('gacha/visible');
-    gachaVisibleData = (r.pools || []).map(p => ({...p, visible: p.visible !== false}));
+    /* 历史脏数据自愈：旧版面板「全不选」会写入 []，旧服务端 /v1/gacha/list 把它当成
+       「一个卡池都不显示」，而 GM 回读却显示全部勾选 —— 这正是「保存无效」的现象。
+       [] 在新旧服务端都等价于「全部显示」，这里直接归一成 null，游戏端立即恢复。 */
+    if (Array.isArray(r.visible_pools) && r.visible_pools.length === 0) {
+      await api('gacha/visible', { method: 'POST', body: JSON.stringify({ action: 'reset' }) });
+    }
+    gachaVisibleData = (r.pools || []).map(p => ({
+      gacha_mid: Number(p.gacha_mid), type: p.type, visible: p.visible !== false
+    }));
+    gachaVisibleDirty = false;
     renderGachaVisible();
-    msg('gachaVisibleMsg', '加载 ' + gachaVisibleData.length + ' 个卡池');
-  } catch(e) { msg('gachaVisibleMsg', '加载失败: ' + e.message, false); }
+  } catch (e) { showNotice('卡池显示列表加载失败：' + e.message, true); }
+}
+function gachaVisibleFiltered() {
+  const f = ($('gacha-visible-filter').value || '').trim();
+  return gachaVisibleData.filter(p => !f || String(p.gacha_mid).indexOf(f) !== -1);
+}
+function updateGachaVisibleMeta() {
+  const rows = gachaVisibleFiltered();
+  const pages = Math.max(1, Math.ceil(rows.length / GACHA_VISIBLE_PAGE_SIZE));
+  if (gachaVisiblePage > pages) gachaVisiblePage = pages;
+  const shown = gachaVisibleData.filter(p => p.visible).length;
+  $('gacha-visible-count').textContent = '共 ' + gachaVisibleData.length + ' 个卡池 · 显示 ' + shown + ' 个';
+  $('gacha-visible-summary').textContent = '当前筛选 ' + rows.length + ' 个 · 已隐藏 ' +
+    (gachaVisibleData.length - shown) + ' 个' + (gachaVisibleDirty ? ' · 有未保存的修改' : '');
+  $('gacha-visible-page').textContent = gachaVisiblePage + ' / ' + pages;
+  $('gacha-visible-prev').disabled = gachaVisiblePage <= 1;
+  $('gacha-visible-next').disabled = gachaVisiblePage >= pages;
+  renderGachaGroups();
 }
 function renderGachaVisible() {
-  const filter = (document.getElementById('gachaVisibleFilter').value || '').trim();
-  const tbody = document.querySelector('#gachaVisibleTable tbody');
-  tbody.innerHTML = '';
-  gachaVisibleData.filter(p => !filter || String(p.gacha_mid).includes(filter)).forEach(p => {
-    const tr = document.createElement('tr');
-    const checked = p.visible ? 'checked' : '';
-    tr.innerHTML = `<td>${p.gacha_mid}</td><td>${GACHA_TYPE_NAMES[p.type] || p.type}</td><td><input type="checkbox" class="gacha-vis-cb" data-mid="${p.gacha_mid}" ${checked}></td>`;
-    tbody.appendChild(tr);
+  const rows = gachaVisibleFiltered();
+  const pages = Math.max(1, Math.ceil(rows.length / GACHA_VISIBLE_PAGE_SIZE));
+  if (gachaVisiblePage > pages) gachaVisiblePage = pages;
+  const start = (gachaVisiblePage - 1) * GACHA_VISIBLE_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + GACHA_VISIBLE_PAGE_SIZE);
+  $('gacha-visible-body').innerHTML = pageRows.length ? pageRows.map(p =>
+    '<tr><td class="num">' + p.gacha_mid + '</td><td>' + esc(p.type) + '</td>' +
+    '<td><label class="vis-toggle"><input type="checkbox" class="gacha-vis-cb" data-mid="' + p.gacha_mid + '"' +
+    (p.visible ? ' checked' : '') + '></label></td></tr>'
+  ).join('') : '<tr><td colspan="3" class="muted" style="text-align:center">—</td></tr>';
+  $('gacha-visible-body').querySelectorAll('.gacha-vis-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const item = gachaVisibleData.find(x => x.gacha_mid === Number(cb.dataset.mid));
+      if (item) { item.visible = cb.checked; gachaVisibleDirty = true; updateGachaVisibleMeta(); }
+    });
   });
+  updateGachaVisibleMeta();
 }
-function toggleAllGachaVisible(checked) {
-  document.querySelectorAll('.gacha-vis-cb').forEach(cb => cb.checked = checked);
+function setGachaVisibleAll(v) {
+  const ids = new Set(gachaVisibleFiltered().map(p => p.gacha_mid));
+  if (!ids.size) return;
+  gachaVisibleData.forEach(p => { if (ids.has(p.gacha_mid)) p.visible = v; });
+  gachaVisibleDirty = true;
+  renderGachaVisible();
 }
+$('gacha-visible-filter').addEventListener('input', () => { gachaVisiblePage = 1; renderGachaVisible(); });
+$('gacha-visible-refresh').addEventListener('click', () => {
+  if (gachaVisibleDirty && !window.confirm('有未保存的勾选，刷新列表会丢弃它们。继续吗？')) return;
+  gachaVisibleDirty = false; gachaVisiblePage = 1; loadGachaVisible(true);
+});
+$('gacha-visible-all').addEventListener('click', () => setGachaVisibleAll(true));
+$('gacha-visible-none').addEventListener('click', () => setGachaVisibleAll(false));
+$('gacha-visible-prev').addEventListener('click', () => {
+  if (gachaVisiblePage > 1) { gachaVisiblePage--; renderGachaVisible(); $('gacha-visible-window').scrollTop = 0; }
+});
+$('gacha-visible-next').addEventListener('click', () => {
+  if (gachaVisiblePage < Math.max(1, Math.ceil(gachaVisibleFiltered().length / GACHA_VISIBLE_PAGE_SIZE))) {
+    gachaVisiblePage++; renderGachaVisible(); $('gacha-visible-window').scrollTop = 0;
+  }
+});
 async function saveGachaVisible() {
-  const visible = [];
-  document.querySelectorAll('.gacha-vis-cb').forEach(cb => { if (cb.checked) visible.push(parseInt(cb.dataset.mid)); });
+  if (!gachaVisibleData.length) { showNotice('卡池列表为空，服务端没有可用的 gacha/list 快照，无法保存。', true); return; }
+  const visible = gachaVisibleData.filter(p => p.visible).map(p => p.gacha_mid);
+  /* 服务端约定：null 或 [] = 全部显示，非空列表 = 只显示列表内的卡池。
+     所以「一个都不显示」必须用不存在的哨兵 mid（-1）表达，直接发 [] 会被当成全部显示。 */
+  const payload = visible.length ? visible : [-1];
   try {
-    await api('gacha/visible', {method:'POST', body: JSON.stringify({visible_pools: visible})});
-    msg('gachaVisibleMsg', '已保存: ' + visible.length + ' 个卡池可见（重启游戏生效）');
-  } catch(e) { msg('gachaVisibleMsg', '保存失败: ' + e.message, false); }
+    await post('gacha/visible', { visible_pools: payload }, '保存可见卡池', visible.length + ' 个');
+    gachaVisibleDirty = false;
+    await loadGachaVisible(true);
+    const got = gachaVisibleData.filter(p => p.visible).map(p => p.gacha_mid);
+    const want = new Set(visible);
+    if (got.length !== visible.length || got.some(m => !want.has(m))) {
+      gachaVisibleDirty = true;
+      updateGachaVisibleMeta();
+      showNotice('保存后回读与勾选不一致（期望显示 ' + visible.length + ' 个，实际 ' + got.length + ' 个），请检查服务端是否已重启到最新版本。', true);
+      return;
+    }
+    showNotice('已保存：' + got.length + ' 个显示 / ' + (gachaVisibleData.length - got.length) + ' 个隐藏；游戏重新拉取 gacha/list 后生效。');
+  } catch (e) { showNotice('保存失败：' + e.message, true); }
 }
-async function resetGachaVisible() {
-  try {
-    await api('gacha/visible', {method:'POST', body: JSON.stringify({action: 'reset'})});
-    await loadGachaVisible();
-    msg('gachaVisibleMsg', '已重置: 全部卡池显示');
-  } catch(e) { msg('gachaVisibleMsg', '重置失败: ' + e.message, false); }
-}
+$('save-gacha-visible').addEventListener('click', saveGachaVisible);
+$('save-gacha-visible-groups').addEventListener('click', saveGachaVisible);
 
-// 监听看板娘切换, 自动显示装备卡片
-const origSelectGirl = selectGirl;
-selectGirl = async function(mid) {
-  await origSelectGirl(mid);
-  renderEquip(mid);
+$('reset-gacha-visible').addEventListener('click', async () => {
+  try {
+    await post('gacha/visible', { action: 'reset' }, '恢复显示全部卡池', '全部');
+    gachaVisibleDirty = false; gachaVisiblePage = 1;
+    await loadGachaVisible(true);
+    showNotice('已恢复显示全部卡池。');
+  } catch (e) { showNotice('重置失败：' + e.message, true); }
+});
+
+/* ---------- 操作记录 / 日志 ---------- */
+async function loadLog() {
+  try { const r = await api('log'); $('log-box').textContent = r.log || '（空）'; }
+  catch (e) { $('log-box').textContent = '加载失败：' + e.message; }
+}
+$('log-refresh').addEventListener('click', loadLog);
+$('history-clear').addEventListener('click', () => { try { localStorage.removeItem(HISTORY_KEY); } catch (e) {} renderHistory(); showNotice('操作记录已清除。'); });
+
+/* ---------- 存档管理 ---------- */
+function openReset() {
+  $('reset-acknowledged').checked = false;
+  const dlg = $('reset-confirmation'); dlg.returnValue = ''; dlg.showModal();
+}
+$('reset-confirmation').addEventListener('close', async () => {
+  if ($('reset-confirmation').returnValue !== 'confirm' || !pendingAction) { pendingAction = null; return; }
+  const fn = pendingAction; pendingAction = null;
+  try { await fn(); } catch (e) { showNotice('操作失败：' + e.message, true); }
+});
+document.querySelectorAll('[data-reset]').forEach(btn => btn.addEventListener('click', () => {
+  const mod = btn.dataset.reset;
+  pendingAction = async () => {
+    await post('reset', { module: mod }, '重置模块', mod);
+    showNotice(mod === 'giftbox' || mod === 'all' ? '邮箱与历史领取记录已清空。' : ('已重置：' + mod));
+    await loadState();
+  };
+  const DESC = {
+    giftbox: '将清空邮箱：删除全部自定义邮件、隐藏抓包内置邮件，并清空历史领取记录。邮件里尚未领取的物品会一起消失，不可撤销。',
+    login_bonus: '将重置签到：累计签到天数与月度领取记录清零，签到奖励可重新领取。',
+    information: '将重置公告：所有公告恢复为未读状态。',
+    all: '将执行以上全部：清空邮箱（自定义邮件 + 内置邮件 + 领取记录）、重置签到、重置公告。'
+  };
+  $('reset-confirm-desc').textContent = DESC[mod] || '将重置「' + mod + '」对应的已领取 / 已读标记。';
+  openReset();
+}));
+$('save-reset-pity').addEventListener('click', () => {
+  pendingAction = async () => {
+    await post('gacha/pity/reset', {}, '重置全部保底', '全部卡池');
+    showNotice('所有卡池的保底计数已重置。');
+    await loadState();
+  };
+  $('reset-confirm-desc').textContent = '将把所有卡池的累计抽数、距上次 SSR 抽数与当前阶梯清零。';
+  openReset();
+});
+$('save-show-pools').addEventListener('click', () => {
+  pendingAction = async () => {
+    await post('gacha/visible', { action: 'reset' }, '恢复显示全部卡池', '全部');
+    showNotice('已恢复显示全部卡池。');
+    gachaVisibleDirty = false; gachaVisiblePage = 1;
+    await loadGachaVisible(true);
+  };
+  $('reset-confirm-desc').textContent = '将清除卡池显示过滤，游戏内重新显示所有卡池。';
+  openReset();
+});
+$('danger-reset').addEventListener('click', () => {
+  pendingAction = async () => {
+    const w = {};
+    ['zack_money', 'free_vstone', 'guest_point', 'vip_point', 'paid_vstone', 'vip_coin'].forEach(k => { w[k] = 0; });
+    await post('wallet', w, '清空钱包', '6 项货币');
+    await post('giftbox/clear', {}, '清除自定义邮件', '全部');
+    await post('reset', { module: 'all' }, '重置全部标记', '邮箱 / 签到 / 公告');
+    showNotice('钱包与领取记录已清空。角色、装备与库存物品保持不变。');
+    await loadState();
+  };
+  $('reset-confirm-desc').textContent = '将把六种货币归零、清除 GM 自定义邮件，并重置邮箱 / 签到 / 公告的全部已领取与已读标记。角色、装备与库存物品不会被删除。';
+  openReset();
+});
+
+/* ---------- 视图切换 / 通用 ---------- */
+const VIEWS = {
+  rewards: ['rewards-view', 'rewards-stock', 'rewards-mails'],
+  girl: ['girl-view'],
+  gacha: ['gacha-view'],
+  history: ['history-view'],
+  save: ['save-view']
 };
+function showView(name) {
+  if (!VIEWS[name]) name = 'rewards';
+  Object.keys(VIEWS).forEach(k => VIEWS[k].forEach(id => {
+    const el = $(id);
+    if (el) el.hidden = (k !== name);
+  }));
+  document.querySelectorAll('[data-view]').forEach(b => {
+    const on = b.dataset.view === name;
+    b.classList.toggle('active', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  if (name === 'history') { renderHistory(); loadLog(); }
+  if (name === 'save') { renderSaveStats(); renderVenus(); }
+  if (name === 'gacha') { if (!gachaConfig) loadGachaConfig(); if (!gachaVisibleData.length) loadGachaVisible(); }
+  try { history.replaceState(null, '', '#' + name); } catch (e) {}
+}
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+$('refresh').addEventListener('click', loadState);
+/* 切换账号：本版只放入口，账号列表 / 切换逻辑留待后续实现 */
+$('switch-account').addEventListener('click', () => showNotice(t('account.switchSoon')));
+$('sidebar-refresh').addEventListener('click', loadState);
+$('retry-connect').addEventListener('click', loadState);
+$('language-select').addEventListener('change', e => {
+  LOCALE = e.target.value;
+  try { localStorage.setItem('doaxvv_gm_lang', LOCALE); } catch (err) {}
+  applyI18n();
+  renderSaveStats();
+  renderVenus();
+});
 
-// 初始加载
+/* ---------- GM 会话心跳：托盘「关闭GM」只断开本页，不关浏览器窗口 ---------- */
+let gmSessionOff = false;
+async function gmSessionTick() {
+  try {
+    const r = await fetch(API + 'gm_session', { cache: 'no-store' });
+    const j = await r.json();
+    const off = !!(j && j.active === false);
+    if (off === gmSessionOff) return;
+    gmSessionOff = off;
+    $('gmoff-overlay').classList.toggle('show', off);
+    if (off) {
+      $('err-overlay').classList.remove('show');   // 断开态优先，不叠加"服务器未连接"
+    } else {
+      await loadState();   // 重新连接：拉一次最新状态
+    }
+  } catch (e) { /* 服务器整体不可达时由 err-overlay 兜底 */ }
+}
+setInterval(gmSessionTick, 2500);
+gmSessionTick();
+
+/* ---------- 启动 ---------- */
+renderRewardTypes();
+applyI18n();
+showView((location.hash || '').replace('#', '') || 'rewards');
 loadState();
 </script>
 </body>

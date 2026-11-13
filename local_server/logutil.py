@@ -26,6 +26,9 @@ def log_write(text):
     _LOG_BUF_SIZE += len(text.encode("utf-8", "replace"))
     if _LOG_BUF_SIZE >= _LOG_BUF_MAX:
         _flush_log()
+    elif "venus_board" in text or "affection" in text:
+        # 2026-11-13: 维纳斯图板/亲爱度报酬排查期间即时刷盘, 否则 16KB 缓冲会让日志滞后十几分钟
+        _flush_log()
 
 try:
     import atexit

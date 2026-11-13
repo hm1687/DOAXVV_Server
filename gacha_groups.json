@@ -1,0 +1,2713 @@
+{
+ "_说明": "卡池组 = 客户端一张 banner。col3(pop_id) 相同的 mid 是同一卡池的不同抽法。由 _tools/build_gacha_groups.py 从 csv_master 生成，主数据变化后重跑。",
+ "groups": [
+  {
+   "group_id": "p1",
+   "pop_id": 1,
+   "has_banner": true,
+   "tabs": [
+    "normal"
+   ],
+   "types": [
+    1
+   ],
+   "start_time": "",
+   "end_time": "",
+   "currency_group": "1",
+   "label": "banner 1",
+   "mids": [
+    1
+   ],
+   "pools": {
+    "1": {
+     "rt": "1",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 10
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p6",
+   "pop_id": 6,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-08-27 02:30:00",
+   "end_time": "2026-09-09 18:59:59",
+   "currency_group": "2487",
+   "label": "banner 6",
+   "mids": [
+    5399
+   ],
+   "pools": {
+    "5399": {
+     "rt": "16976",
+     "rarities": {
+      "SSR": 87,
+      "SR": 1,
+      "R": 58
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p7",
+   "pop_id": 7,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-09-02 16:00:00",
+   "end_time": "2026-09-09 15:59:59",
+   "currency_group": "2491",
+   "label": "banner 7",
+   "mids": [
+    5412
+   ],
+   "pools": {
+    "5412": {
+     "rt": "17017",
+     "rarities": {
+      "SSR": 80,
+      "SR": 1,
+      "R": 51
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p8",
+   "pop_id": 8,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-09-02 16:00:00",
+   "end_time": "2026-09-09 15:59:59",
+   "currency_group": "2492",
+   "label": "banner 8",
+   "mids": [
+    5413
+   ],
+   "pools": {
+    "5413": {
+     "rt": "17027",
+     "rarities": {
+      "SSR": 82,
+      "SR": 1,
+      "R": 52
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p9",
+   "pop_id": 9,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-09-02 16:00:00",
+   "end_time": "2026-09-09 15:59:59",
+   "currency_group": "2493",
+   "label": "banner 9",
+   "mids": [
+    5414
+   ],
+   "pools": {
+    "5414": {
+     "rt": "17033",
+     "rarities": {
+      "SSR": 82,
+      "SR": 1,
+      "R": 52
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p24",
+   "pop_id": 24,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-09-03 02:30:00",
+   "end_time": "2026-09-09 18:59:59",
+   "currency_group": "2494",
+   "label": "banner 24",
+   "mids": [
+    5415,
+    5416,
+    5417,
+    5418
+   ],
+   "pools": {
+    "5415": {
+     "rt": "17040",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 97
+     }
+    },
+    "5416": {
+     "rt": "17040",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 97
+     }
+    },
+    "5417": {
+     "rt": "17039",
+     "rarities": {
+      "SSR": 97,
+      "SR": 0,
+      "R": 67
+     }
+    },
+    "5418": {
+     "rt": "17041",
+     "rarities": {
+      "SSR": 97,
+      "SR": 1,
+      "R": 67
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p32",
+   "pop_id": 32,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-09-03 02:30:00",
+   "end_time": "2026-09-09 18:59:59",
+   "currency_group": "2495",
+   "label": "banner 32",
+   "mids": [
+    5419,
+    5420,
+    5421,
+    5422
+   ],
+   "pools": {
+    "5419": {
+     "rt": "17052",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 95
+     }
+    },
+    "5420": {
+     "rt": "17052",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 95
+     }
+    },
+    "5421": {
+     "rt": "17051",
+     "rarities": {
+      "SSR": 95,
+      "SR": 0,
+      "R": 65
+     }
+    },
+    "5422": {
+     "rt": "17053",
+     "rarities": {
+      "SSR": 95,
+      "SR": 0,
+      "R": 65
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p43",
+   "pop_id": 43,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-08-27 02:30:00",
+   "end_time": "2026-09-09 18:59:59",
+   "currency_group": "2489",
+   "label": "banner 43",
+   "mids": [
+    5404,
+    5405,
+    5406,
+    5407
+   ],
+   "pools": {
+    "5404": {
+     "rt": "16999",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 97
+     }
+    },
+    "5405": {
+     "rt": "16999",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 97
+     }
+    },
+    "5406": {
+     "rt": "16998",
+     "rarities": {
+      "SSR": 97,
+      "SR": 0,
+      "R": 67
+     }
+    },
+    "5407": {
+     "rt": "17000",
+     "rarities": {
+      "SSR": 97,
+      "SR": 0,
+      "R": 67
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p44",
+   "pop_id": 44,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-08-27 02:30:00",
+   "end_time": "2026-09-09 18:59:59",
+   "currency_group": "2490",
+   "label": "banner 44",
+   "mids": [
+    5408,
+    5409,
+    5410,
+    5411
+   ],
+   "pools": {
+    "5408": {
+     "rt": "17009",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 97
+     }
+    },
+    "5409": {
+     "rt": "17009",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 97
+     }
+    },
+    "5410": {
+     "rt": "17008",
+     "rarities": {
+      "SSR": 97,
+      "SR": 0,
+      "R": 67
+     }
+    },
+    "5411": {
+     "rt": "17010",
+     "rarities": {
+      "SSR": 97,
+      "SR": 0,
+      "R": 67
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p55",
+   "pop_id": 55,
+   "has_banner": true,
+   "tabs": [
+    "limited",
+    "normal"
+   ],
+   "types": [
+    3,
+    4
+   ],
+   "start_time": "2020-10-07 05:30:00",
+   "end_time": "2037-12-31 23:59:59",
+   "currency_group": "1024",
+   "label": "banner 55",
+   "mids": [
+    321,
+    5035
+   ],
+   "pools": {
+    "321": {
+     "rt": "894",
+     "rarities": {
+      "SSR": 60,
+      "SR": 0,
+      "R": 10
+     }
+    },
+    "5035": {
+     "rt": "15614",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 111
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p65",
+   "pop_id": 65,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-07-31 16:00:00",
+   "end_time": "2026-09-30 15:59:59",
+   "currency_group": "2464",
+   "label": "banner 65",
+   "mids": [
+    5348,
+    5349,
+    5350
+   ],
+   "pools": {
+    "5348": {
+     "rt": "16795",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 120
+     }
+    },
+    "5349": {
+     "rt": "16796",
+     "rarities": {
+      "SSR": 120,
+      "SR": 0,
+      "R": 90
+     }
+    },
+    "5350": {
+     "rt": "16796",
+     "rarities": {
+      "SSR": 120,
+      "SR": 0,
+      "R": 90
+     }
+    }
+   }
+  },
+  {
+   "group_id": "p300",
+   "pop_id": 300,
+   "has_banner": true,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-04-08 05:30:00",
+   "end_time": "",
+   "currency_group": "1013",
+   "label": "banner 300",
+   "mids": [
+    214
+   ],
+   "pools": {
+    "214": {
+     "rt": "572",
+     "rarities": {
+      "SSR": 63,
+      "SR": 0,
+      "R": 33
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m2",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "normal"
+   ],
+   "types": [
+    2
+   ],
+   "start_time": "",
+   "end_time": "",
+   "currency_group": "2",
+   "label": "gacha_mid 2",
+   "mids": [
+    2
+   ],
+   "pools": {
+    "2": {
+     "rt": "2",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 60
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m3",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "normal"
+   ],
+   "types": [
+    2
+   ],
+   "start_time": "",
+   "end_time": "",
+   "currency_group": "2",
+   "label": "gacha_mid 3",
+   "mids": [
+    3
+   ],
+   "pools": {
+    "3": {
+     "rt": "3",
+     "rarities": {
+      "SSR": 60,
+      "SR": 0,
+      "R": 30
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m4",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "normal"
+   ],
+   "types": [
+    2
+   ],
+   "start_time": "",
+   "end_time": "",
+   "currency_group": "3",
+   "label": "gacha_mid 4",
+   "mids": [
+    4
+   ],
+   "pools": {
+    "4": {
+     "rt": "7",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 187
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m5",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "normal"
+   ],
+   "types": [
+    2
+   ],
+   "start_time": "",
+   "end_time": "",
+   "currency_group": "3",
+   "label": "gacha_mid 5",
+   "mids": [
+    5
+   ],
+   "pools": {
+    "5": {
+     "rt": "8",
+     "rarities": {
+      "SSR": 0,
+      "SR": 187,
+      "R": 0
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m6",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "normal"
+   ],
+   "types": [
+    2
+   ],
+   "start_time": "",
+   "end_time": "",
+   "currency_group": "151",
+   "label": "gacha_mid 6",
+   "mids": [
+    6
+   ],
+   "pools": {
+    "6": {
+     "rt": "5",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 20
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m7",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "normal"
+   ],
+   "types": [
+    2
+   ],
+   "start_time": "",
+   "end_time": "",
+   "currency_group": "150",
+   "label": "gacha_mid 7",
+   "mids": [
+    7
+   ],
+   "pools": {
+    "7": {
+     "rt": "6",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 10
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m53",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2019-07-22 15:00:00",
+   "end_time": "",
+   "currency_group": "224",
+   "label": "gacha_mid 53",
+   "mids": [
+    53
+   ],
+   "pools": {
+    "53": {
+     "rt": "174",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 4
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m81",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2019-09-18 05:30:00",
+   "end_time": "",
+   "currency_group": "120",
+   "label": "gacha_mid 81",
+   "mids": [
+    81
+   ],
+   "pools": {
+    "81": {
+     "rt": "264",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 11
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m110",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2019-10-29 05:30:00",
+   "end_time": "",
+   "currency_group": "1001",
+   "label": "gacha_mid 110",
+   "mids": [
+    110
+   ],
+   "pools": {
+    "110": {
+     "rt": "333",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 12
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m130",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2019-11-26 05:30:00",
+   "end_time": "",
+   "currency_group": "1003",
+   "label": "gacha_mid 130",
+   "mids": [
+    130
+   ],
+   "pools": {
+    "130": {
+     "rt": "391",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 12
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m137",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2019-12-10 05:30:00",
+   "end_time": "",
+   "currency_group": "130",
+   "label": "gacha_mid 137",
+   "mids": [
+    137
+   ],
+   "pools": {
+    "137": {
+     "rt": "407",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 12
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m155",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-01-07 05:30:00",
+   "end_time": "",
+   "currency_group": "1007",
+   "label": "gacha_mid 155",
+   "mids": [
+    155
+   ],
+   "pools": {
+    "155": {
+     "rt": "445",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 12
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m193",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-03-11 05:30:00",
+   "end_time": "",
+   "currency_group": "169",
+   "label": "gacha_mid 193",
+   "mids": [
+    193
+   ],
+   "pools": {
+    "193": {
+     "rt": "545",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 13
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m210",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-04-29 05:30:00",
+   "end_time": "",
+   "currency_group": "1011",
+   "label": "gacha_mid 210",
+   "mids": [
+    210
+   ],
+   "pools": {
+    "210": {
+     "rt": "590",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 13
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m232",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-05-13 05:30:00",
+   "end_time": "",
+   "currency_group": "1017",
+   "label": "gacha_mid 232",
+   "mids": [
+    232
+   ],
+   "pools": {
+    "232": {
+     "rt": "646",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 13
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m272",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-07-22 05:30:00",
+   "end_time": "",
+   "currency_group": "214",
+   "label": "gacha_mid 272",
+   "mids": [
+    272
+   ],
+   "pools": {
+    "272": {
+     "rt": "757",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 14
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m334",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-10-21 05:30:00",
+   "end_time": "",
+   "currency_group": "1027",
+   "label": "gacha_mid 334",
+   "mids": [
+    334
+   ],
+   "pools": {
+    "334": {
+     "rt": "934",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m335",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-10-21 05:30:00",
+   "end_time": "",
+   "currency_group": "1028",
+   "label": "gacha_mid 335",
+   "mids": [
+    335
+   ],
+   "pools": {
+    "335": {
+     "rt": "936",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m382",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-11-25 05:30:00",
+   "end_time": "",
+   "currency_group": "1031",
+   "label": "gacha_mid 382",
+   "mids": [
+    382
+   ],
+   "pools": {
+    "382": {
+     "rt": "1130",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 15
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m386",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-12-03 05:30:00",
+   "end_time": "",
+   "currency_group": "366",
+   "label": "gacha_mid 386",
+   "mids": [
+    386
+   ],
+   "pools": {
+    "386": {
+     "rt": "1142",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 6
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m390",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-12-03 05:30:00",
+   "end_time": "",
+   "currency_group": "368",
+   "label": "gacha_mid 390",
+   "mids": [
+    390
+   ],
+   "pools": {
+    "390": {
+     "rt": "1152",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 10
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m402",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-12-23 05:30:00",
+   "end_time": "",
+   "currency_group": "1032",
+   "label": "gacha_mid 402",
+   "mids": [
+    402
+   ],
+   "pools": {
+    "402": {
+     "rt": "1179",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 8
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m403",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2020-12-23 05:30:00",
+   "end_time": "",
+   "currency_group": "1033",
+   "label": "gacha_mid 403",
+   "mids": [
+    403
+   ],
+   "pools": {
+    "403": {
+     "rt": "1181",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 8
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m456",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-02-10 05:30:00",
+   "end_time": "",
+   "currency_group": "376",
+   "label": "gacha_mid 456",
+   "mids": [
+    456
+   ],
+   "pools": {
+    "456": {
+     "rt": "1325",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m457",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-02-10 05:30:00",
+   "end_time": "",
+   "currency_group": "377",
+   "label": "gacha_mid 457",
+   "mids": [
+    457
+   ],
+   "pools": {
+    "457": {
+     "rt": "1327",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m458",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-02-10 05:30:00",
+   "end_time": "",
+   "currency_group": "378",
+   "label": "gacha_mid 458",
+   "mids": [
+    458
+   ],
+   "pools": {
+    "458": {
+     "rt": "1329",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m459",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-02-10 05:30:00",
+   "end_time": "",
+   "currency_group": "379",
+   "label": "gacha_mid 459",
+   "mids": [
+    459
+   ],
+   "pools": {
+    "459": {
+     "rt": "1331",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m536",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-04-14 05:30:00",
+   "end_time": "",
+   "currency_group": "320",
+   "label": "gacha_mid 536",
+   "mids": [
+    536
+   ],
+   "pools": {
+    "536": {
+     "rt": "1551",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m537",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-04-14 05:30:00",
+   "end_time": "",
+   "currency_group": "321",
+   "label": "gacha_mid 537",
+   "mids": [
+    537
+   ],
+   "pools": {
+    "537": {
+     "rt": "1552",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m538",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-04-14 05:30:00",
+   "end_time": "",
+   "currency_group": "322",
+   "label": "gacha_mid 538",
+   "mids": [
+    538
+   ],
+   "pools": {
+    "538": {
+     "rt": "1553",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m539",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-04-14 05:30:00",
+   "end_time": "",
+   "currency_group": "323",
+   "label": "gacha_mid 539",
+   "mids": [
+    539
+   ],
+   "pools": {
+    "539": {
+     "rt": "1554",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 5
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m550",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-03-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1047",
+   "label": "gacha_mid 550",
+   "mids": [
+    550
+   ],
+   "pools": {
+    "550": {
+     "rt": "1584",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 16
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m574",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-04-28 05:30:00",
+   "end_time": "",
+   "currency_group": "420",
+   "label": "gacha_mid 574",
+   "mids": [
+    574
+   ],
+   "pools": {
+    "574": {
+     "rt": "1662",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 4
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m575",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-04-28 05:30:00",
+   "end_time": "",
+   "currency_group": "421",
+   "label": "gacha_mid 575",
+   "mids": [
+    575
+   ],
+   "pools": {
+    "575": {
+     "rt": "1664",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 4
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m599",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-05-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1050",
+   "label": "gacha_mid 599",
+   "mids": [
+    599
+   ],
+   "pools": {
+    "599": {
+     "rt": "1732",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 17
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m645",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-07-22 05:30:00",
+   "end_time": "",
+   "currency_group": "245",
+   "label": "gacha_mid 645",
+   "mids": [
+    645
+   ],
+   "pools": {
+    "645": {
+     "rt": "1848",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 8
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m649",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-07-22 05:30:00",
+   "end_time": "",
+   "currency_group": "246",
+   "label": "gacha_mid 649",
+   "mids": [
+    649
+   ],
+   "pools": {
+    "649": {
+     "rt": "1856",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 8
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m658",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-07-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1053",
+   "label": "gacha_mid 658",
+   "mids": [
+    658
+   ],
+   "pools": {
+    "658": {
+     "rt": "1882",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 17
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m711",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-09-23 05:30:00",
+   "end_time": "",
+   "currency_group": "491",
+   "label": "gacha_mid 711",
+   "mids": [
+    711
+   ],
+   "pools": {
+    "711": {
+     "rt": "2027",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 3
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m712",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-09-23 05:30:00",
+   "end_time": "",
+   "currency_group": "492",
+   "label": "gacha_mid 712",
+   "mids": [
+    712
+   ],
+   "pools": {
+    "712": {
+     "rt": "2029",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 3
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m713",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-09-23 05:30:00",
+   "end_time": "",
+   "currency_group": "493",
+   "label": "gacha_mid 713",
+   "mids": [
+    713
+   ],
+   "pools": {
+    "713": {
+     "rt": "2031",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 3
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m722",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-09-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1059",
+   "label": "gacha_mid 722",
+   "mids": [
+    722
+   ],
+   "pools": {
+    "722": {
+     "rt": "2055",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 17
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m746",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-10-20 05:30:00",
+   "end_time": "",
+   "currency_group": "280",
+   "label": "gacha_mid 746",
+   "mids": [
+    746
+   ],
+   "pools": {
+    "746": {
+     "rt": "2128",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 8
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m747",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-10-20 05:30:00",
+   "end_time": "",
+   "currency_group": "281",
+   "label": "gacha_mid 747",
+   "mids": [
+    747
+   ],
+   "pools": {
+    "747": {
+     "rt": "2130",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 8
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m807",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2021-11-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1067",
+   "label": "gacha_mid 807",
+   "mids": [
+    807
+   ],
+   "pools": {
+    "807": {
+     "rt": "2363",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 18
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m895",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-01-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1074",
+   "label": "gacha_mid 895",
+   "mids": [
+    895
+   ],
+   "pools": {
+    "895": {
+     "rt": "2594",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 18
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m984",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-03-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1083",
+   "label": "gacha_mid 984",
+   "mids": [
+    984
+   ],
+   "pools": {
+    "984": {
+     "rt": "2842",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 19
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m985",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-03-25 05:30:00",
+   "end_time": "",
+   "currency_group": "1084",
+   "label": "gacha_mid 985",
+   "mids": [
+    985
+   ],
+   "pools": {
+    "985": {
+     "rt": "2843",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 9
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m986",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-03-25 05:30:00",
+   "end_time": "",
+   "currency_group": "1085",
+   "label": "gacha_mid 986",
+   "mids": [
+    986
+   ],
+   "pools": {
+    "986": {
+     "rt": "2845",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 9
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1061",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-05-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1100",
+   "label": "gacha_mid 1061",
+   "mids": [
+    1061
+   ],
+   "pools": {
+    "1061": {
+     "rt": "3062",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 19
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1137",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-07-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1109",
+   "label": "gacha_mid 1137",
+   "mids": [
+    1137
+   ],
+   "pools": {
+    "1137": {
+     "rt": "3284",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 20
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1214",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-09-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1112",
+   "label": "gacha_mid 1214",
+   "mids": [
+    1214
+   ],
+   "pools": {
+    "1214": {
+     "rt": "3517",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 20
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1380",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2022-11-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1127",
+   "label": "gacha_mid 1380",
+   "mids": [
+    1380
+   ],
+   "pools": {
+    "1380": {
+     "rt": "4161",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 21
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1525",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2023-01-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1131",
+   "label": "gacha_mid 1525",
+   "mids": [
+    1525
+   ],
+   "pools": {
+    "1525": {
+     "rt": "4562",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 22
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1693",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2023-03-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1141",
+   "label": "gacha_mid 1693",
+   "mids": [
+    1693
+   ],
+   "pools": {
+    "1693": {
+     "rt": "5018",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 23
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1804",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2023-05-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1173",
+   "label": "gacha_mid 1804",
+   "mids": [
+    1804
+   ],
+   "pools": {
+    "1804": {
+     "rt": "5351",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 23
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m1920",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2023-07-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1213",
+   "label": "gacha_mid 1920",
+   "mids": [
+    1920
+   ],
+   "pools": {
+    "1920": {
+     "rt": "5722",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 24
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m2022",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2023-09-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1255",
+   "label": "gacha_mid 2022",
+   "mids": [
+    2022
+   ],
+   "pools": {
+    "2022": {
+     "rt": "6053",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 24
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m2210",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2023-11-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1334",
+   "label": "gacha_mid 2210",
+   "mids": [
+    2210
+   ],
+   "pools": {
+    "2210": {
+     "rt": "6672",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 25
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m2393",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2024-01-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1395",
+   "label": "gacha_mid 2393",
+   "mids": [
+    2393
+   ],
+   "pools": {
+    "2393": {
+     "rt": "7241",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 26
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m2587",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2024-03-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1457",
+   "label": "gacha_mid 2587",
+   "mids": [
+    2587
+   ],
+   "pools": {
+    "2587": {
+     "rt": "7822",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 26
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m2753",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2024-05-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1535",
+   "label": "gacha_mid 2753",
+   "mids": [
+    2753
+   ],
+   "pools": {
+    "2753": {
+     "rt": "8431",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 26
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m2888",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2024-07-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1583",
+   "label": "gacha_mid 2888",
+   "mids": [
+    2888
+   ],
+   "pools": {
+    "2888": {
+     "rt": "8861",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 26
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m3046",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2024-09-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1644",
+   "label": "gacha_mid 3046",
+   "mids": [
+    3046
+   ],
+   "pools": {
+    "3046": {
+     "rt": "9421",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 27
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m3247",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2024-11-30 16:00:00",
+   "end_time": "",
+   "currency_group": "1729",
+   "label": "gacha_mid 3247",
+   "mids": [
+    3247
+   ],
+   "pools": {
+    "3247": {
+     "rt": "9981",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 27
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m3474",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2025-01-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1797",
+   "label": "gacha_mid 3474",
+   "mids": [
+    3474
+   ],
+   "pools": {
+    "3474": {
+     "rt": "10665",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 27
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m3767",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2025-03-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1888",
+   "label": "gacha_mid 3767",
+   "mids": [
+    3767
+   ],
+   "pools": {
+    "3767": {
+     "rt": "11569",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 28
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m3926",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2025-05-31 16:00:00",
+   "end_time": "",
+   "currency_group": "1945",
+   "label": "gacha_mid 3926",
+   "mids": [
+    3926
+   ],
+   "pools": {
+    "3926": {
+     "rt": "12071",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 28
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m4077",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2025-07-31 16:00:00",
+   "end_time": "",
+   "currency_group": "2009",
+   "label": "gacha_mid 4077",
+   "mids": [
+    4077
+   ],
+   "pools": {
+    "4077": {
+     "rt": "12610",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 29
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m4251",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2025-09-30 16:00:00",
+   "end_time": "",
+   "currency_group": "2072",
+   "label": "gacha_mid 4251",
+   "mids": [
+    4251
+   ],
+   "pools": {
+    "4251": {
+     "rt": "13178",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 29
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m4525",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2025-11-30 16:00:00",
+   "end_time": "",
+   "currency_group": "2175",
+   "label": "gacha_mid 4525",
+   "mids": [
+    4525
+   ],
+   "pools": {
+    "4525": {
+     "rt": "13926",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 29
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m4777",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-01-31 16:00:00",
+   "end_time": "",
+   "currency_group": "2256",
+   "label": "gacha_mid 4777",
+   "mids": [
+    4777
+   ],
+   "pools": {
+    "4777": {
+     "rt": "14705",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 30
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m5037",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-03-25 19:00:00",
+   "end_time": "",
+   "currency_group": "2342",
+   "label": "gacha_mid 5037",
+   "mids": [
+    5037
+   ],
+   "pools": {
+    "5037": {
+     "rt": "15618",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 27
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m5041",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-03-31 16:00:00",
+   "end_time": "",
+   "currency_group": "2344",
+   "label": "gacha_mid 5041",
+   "mids": [
+    5041
+   ],
+   "pools": {
+    "5041": {
+     "rt": "15627",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 30
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m5208",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-05-31 16:00:00",
+   "end_time": "",
+   "currency_group": "2408",
+   "label": "gacha_mid 5208",
+   "mids": [
+    5208
+   ],
+   "pools": {
+    "5208": {
+     "rt": "16255",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 30
+     }
+    }
+   }
+  },
+  {
+   "group_id": "m5351",
+   "pop_id": null,
+   "has_banner": false,
+   "tabs": [
+    "limited"
+   ],
+   "types": [
+    3
+   ],
+   "start_time": "2026-07-31 16:00:00",
+   "end_time": "",
+   "currency_group": "2465",
+   "label": "gacha_mid 5351",
+   "mids": [
+    5351
+   ],
+   "pools": {
+    "5351": {
+     "rt": "16802",
+     "rarities": {
+      "SSR": 0,
+      "SR": 0,
+      "R": 30
+     }
+    }
+   }
+  }
+ ],
+ "mid_to_group": {
+  "1": "p1",
+  "5399": "p6",
+  "5412": "p7",
+  "5413": "p8",
+  "5414": "p9",
+  "5415": "p24",
+  "5416": "p24",
+  "5417": "p24",
+  "5418": "p24",
+  "5419": "p32",
+  "5420": "p32",
+  "5421": "p32",
+  "5422": "p32",
+  "5404": "p43",
+  "5405": "p43",
+  "5406": "p43",
+  "5407": "p43",
+  "5408": "p44",
+  "5409": "p44",
+  "5410": "p44",
+  "5411": "p44",
+  "321": "p55",
+  "5035": "p55",
+  "5348": "p65",
+  "5349": "p65",
+  "5350": "p65",
+  "214": "p300",
+  "2": "m2",
+  "3": "m3",
+  "4": "m4",
+  "5": "m5",
+  "6": "m6",
+  "7": "m7",
+  "53": "m53",
+  "81": "m81",
+  "110": "m110",
+  "130": "m130",
+  "137": "m137",
+  "155": "m155",
+  "193": "m193",
+  "210": "m210",
+  "232": "m232",
+  "272": "m272",
+  "334": "m334",
+  "335": "m335",
+  "382": "m382",
+  "386": "m386",
+  "390": "m390",
+  "402": "m402",
+  "403": "m403",
+  "456": "m456",
+  "457": "m457",
+  "458": "m458",
+  "459": "m459",
+  "536": "m536",
+  "537": "m537",
+  "538": "m538",
+  "539": "m539",
+  "550": "m550",
+  "574": "m574",
+  "575": "m575",
+  "599": "m599",
+  "645": "m645",
+  "649": "m649",
+  "658": "m658",
+  "711": "m711",
+  "712": "m712",
+  "713": "m713",
+  "722": "m722",
+  "746": "m746",
+  "747": "m747",
+  "807": "m807",
+  "895": "m895",
+  "984": "m984",
+  "985": "m985",
+  "986": "m986",
+  "1061": "m1061",
+  "1137": "m1137",
+  "1214": "m1214",
+  "1380": "m1380",
+  "1525": "m1525",
+  "1693": "m1693",
+  "1804": "m1804",
+  "1920": "m1920",
+  "2022": "m2022",
+  "2210": "m2210",
+  "2393": "m2393",
+  "2587": "m2587",
+  "2753": "m2753",
+  "2888": "m2888",
+  "3046": "m3046",
+  "3247": "m3247",
+  "3474": "m3474",
+  "3767": "m3767",
+  "3926": "m3926",
+  "4077": "m4077",
+  "4251": "m4251",
+  "4525": "m4525",
+  "4777": "m4777",
+  "5037": "m5037",
+  "5041": "m5041",
+  "5208": "m5208",
+  "5351": "m5351"
+ },
+ "visible_group_count": 12,
+ "mid_count": 103
+}
